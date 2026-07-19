@@ -15,6 +15,9 @@
    does not name to that construction default.
 
      GET    /api/configs               list: name, mtime, enabled devices
+     GET    /api/configs?current=1     the live setup in snapshot form, for
+                                       comparison against the saved ones;
+                                       503 while the machine is busy
      GET    /api/configs/<name>        full snapshot content
      PUT    /api/configs/<name>        save the current setup under <name>
      POST   /api/configs/<name>/apply  restore a snapshot (best effort,
@@ -156,10 +159,10 @@ static void reset_to_defaults(device_c *dev, const std::set<std::string> *keep,
 // A configuration describes the whole machine: it carries the devices that are
 // switched on and, of those, only the parameters that differ from the
 // construction defaults. Everything it does not mention is off and default.
-static picojson::value snapshot_devices(void) {
+//
+// Caller holds operations_mutex and mydevices_mutex.
+static picojson::value snapshot_devices_locked(void) {
 	picojson::array devices;
-	std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
-	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
 	for (device_c *dev : device_c::mydevices) {
 		if (device_is_infrastructure(dev) || !dev->enabled.value)
 			continue;
@@ -178,6 +181,35 @@ static picojson::value snapshot_devices(void) {
 	picojson::object root;
 	root["devices"] = picojson::value(devices);
 	return picojson::value(root);
+}
+
+// Saving is an explicit operator action and waits for the machine to be free.
+static picojson::value snapshot_devices(void) {
+	std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
+	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+	return snapshot_devices_locked();
+}
+
+// The same snapshot for a status query, which must never block a worker thread
+// waiting on the machine: both locks are polled to a deadline and released
+// again if only one comes free, so a busy registry costs a 503 and not a wedged
+// connection. Returns false if the machine stayed busy.
+static bool snapshot_devices_now(picojson::value *out, unsigned timeout_ms) {
+	std::unique_lock<std::mutex> ops_lock(device_configuration_c::operations_mutex,
+			std::defer_lock);
+	std::unique_lock<std::mutex> dev_lock(device_c::mydevices_mutex, std::defer_lock);
+	for (unsigned waited = 0;; waited += 10) {
+		if (ops_lock.try_lock()) {
+			if (dev_lock.try_lock()) {
+				*out = snapshot_devices_locked();
+				return true;
+			}
+			ops_lock.unlock(); // never hold one while waiting for the other
+		}
+		if (waited >= timeout_ms)
+			return false;
+		usleep(10000);
+	}
 }
 
 static bool read_config(const std::string &name, picojson::value *out,
@@ -398,7 +430,18 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			send_error(conn, 405, "GET required");
 			return 405;
 		}
-		configs_list(conn);
+		// ?current=1 renders the live setup in snapshot form, so a caller can
+		// tell which saved configuration — if any — is the one loaded
+		const char *query = ri->query_string;
+		if (query != nullptr && strstr(query, "current") != nullptr) {
+			picojson::value current;
+			if (!snapshot_devices_now(&current, 500)) {
+				send_error(conn, 503, "machine busy, current setup unavailable");
+				return 503;
+			}
+			send_json(conn, 200, current);
+		} else
+			configs_list(conn);
 		return 200;
 	}
 

@@ -176,10 +176,6 @@ button { font: inherit; color: inherit; }
 .nav button.active {
   background: var(--accent-soft); color: var(--accent); font-weight: 600;
 }
-.nav .count {
-  font-family: var(--font-mono); font-size: var(--fs-0); color: var(--ink-faint);
-}
-.nav button.active .count { color: var(--accent); }
 .sidebar .foot {
   margin-top: auto; padding: 12px 16px;
   border-top: 1px solid var(--line-soft);
@@ -187,7 +183,9 @@ button { font: inherit; color: inherit; }
   font-family: var(--font-mono); line-height: 1.7;
 }
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* the frame is the viewport and the content area scrolls inside it, so a page
+   can hand its own height to a child that scrolls on its own (the log) */
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
 
 .topbar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -198,7 +196,8 @@ button { font: inherit; color: inherit; }
 }
 .topbar h1 { font-size: var(--fs-4); font-weight: 650; margin: 0 auto 0 0; text-wrap: balance; }
 
-.content { padding: 22px 24px 60px; max-width: 1160px; width: 100%; margin: 0 auto; }
+.content { padding: 22px 24px 60px; max-width: 1160px; width: 100%; margin: 0 auto;
+  flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
 .page { display: none; }
 .page.active { display: block; }
 .page > .lede { color: var(--ink-muted); max-width: 65ch; margin: 0 0 18px; }
@@ -212,10 +211,22 @@ button { font: inherit; color: inherit; }
   font-family: var(--font-mono); font-size: var(--fs-0);
   color: var(--ink-muted); white-space: nowrap;
 }
+/* the topbar dots are indicator lamps: a lit one carries a hot core and
+   throws a little glow, so lit and dark read apart at a glance */
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); flex: 0 0 auto; }
-.dot.ok   { background: var(--ok); }
-.dot.warn { background: var(--warn); }
-.dot.err  { background: var(--err); }
+.dot.ok, .dot.warn, .dot.err { box-shadow: 0 0 5px 1px currentColor; }
+.dot.ok {
+  color: var(--ok);
+  background: radial-gradient(circle at 50% 32%, #FFFFFFC0 0%, var(--ok) 58%);
+}
+.dot.warn {
+  color: var(--warn);
+  background: radial-gradient(circle at 50% 32%, #FFFFFFC0 0%, var(--warn) 58%);
+}
+.dot.err {
+  color: var(--err);
+  background: radial-gradient(circle at 50% 32%, #FFFFFFC0 0%, var(--err) 58%);
+}
 
 .chip {
   display: inline-block; padding: 1px 8px; border-radius: 999px;
@@ -236,12 +247,25 @@ button { font: inherit; color: inherit; }
   cursor: pointer; font-size: var(--fs-1);
 }
 .btn:hover { border-color: var(--ink-faint); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); filter: none; }
 .btn.primary {
   background: var(--accent); border-color: var(--accent); color: var(--on-accent);
   font-weight: 600;
 }
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.small { padding: 3px 9px; font-size: var(--fs-0); }
+/* an action that interrupts the running machine: red at rest, filled once
+   armed. Both captions share one grid cell, so arming swaps the text without
+   resizing the button. */
+.btn.danger { border-color: var(--err); color: var(--err); }
+.btn.danger:hover { border-color: var(--err); background: var(--err-soft); }
+.btn.danger.armed { background: var(--err); border-color: var(--err); color: #fff; font-weight: 600; }
+.btn.danger .lbl { display: grid; width: 100%; }
+.btn.danger .lbl > span { grid-area: 1 / 1; text-align: center; }
+.btn.danger .lbl .armed-lbl { visibility: hidden; }
+.btn.danger.armed .lbl .idle { visibility: hidden; }
+.btn.danger.armed .lbl .armed-lbl { visibility: visible; }
 
 .card {
   background: var(--surface);
@@ -348,11 +372,20 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 .dash-left .frontpanel { flex: 1 1 auto; }
 .ctrl-btns { display: flex; flex-direction: column; gap: 8px; }
 .ctrl-btns > .btn { width: 100%; justify-content: center; }
-.ctrl-btns #pwr-zone { display: flex; gap: 8px; align-items: center; width: 100%; }
-.ctrl-btns #pwr-zone .btn { flex: 1; justify-content: center; }
 .dash-term { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-.frontpanel .fp-row { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
-.frontpanel .fp-row .chip { white-space: nowrap; }
+/* the three rows share the card's height evenly, and each row's controls
+   spread across the width the legend column leaves them */
+.frontpanel { display: flex; flex-direction: column; }
+/* the head's own padding would otherwise widen the gap above the first row */
+.frontpanel .card-head { padding-bottom: 0; }
+.frontpanel .card-body {
+  flex: 1 1 auto; padding-bottom: 0;
+  display: flex; flex-direction: column; justify-content: space-evenly;
+}
+.frontpanel .fp-row { display: flex; align-items: center; gap: 10px; }
+.frontpanel .fp-row .chip { flex: 1 1 0; text-align: center; white-space: nowrap; }
+/* lamps and switches keep their own spacing and read as one block, the way
+   they sit on a real panel */
 .frontpanel .fp-k {
   font-size: var(--fs-0); text-transform: uppercase; letter-spacing: .05em;
   color: var(--ink-faint); font-weight: 600; width: 38px; flex: 0 0 auto;
@@ -477,12 +510,19 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 }
 .cfg-cmd.open { display: block; }
 .cfg-cmd .cm { color: var(--ink-faint); }
+/* the devices a configuration names, in the devices page's own language */
+.cfg-devs .dev-sub { border-top: 1px solid var(--line-soft); }
+.cfg-devs .params { padding-top: 0; }
 
 /* ============================ diagnostics ============================ */
-.logbox {
-  font-family: var(--font-mono); font-size: var(--fs-1);
-  max-height: 300px; overflow-y: auto;
-}
+.logbox { font-family: var(--font-mono); font-size: var(--fs-1); overflow-y: auto; }
+/* the log page is the log: its card fills the content area and only the
+   entries inside it scroll */
+.page[data-page="log"].active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.logcard { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.logcard .card-head { padding-bottom: 0; }
+.logcard .logbox { flex: 1 1 auto; min-height: 0; }
+.content:has(.page[data-page="log"].active) { padding-bottom: 22px; }
 .filter-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .filter-row .chip { cursor: pointer; border: 1px solid transparent; }
 .filter-row .chip.inactive { opacity: .35; }
@@ -501,9 +541,10 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
   letter-spacing: .12em; margin-bottom: 12px; color: var(--rl-ink-dim);
   display: flex; justify-content: space-between;
 }
-/* the caps sit in a black bezel that hugs the button bar, as on the drive */
+/* the caps sit in a black bezel that hugs the button bar, as on the drive:
+   one row, as the switch plate is on the real machine */
 .lamps {
-  display: inline-flex; gap: 5px; flex-wrap: wrap; max-width: 100%;
+  display: inline-flex; gap: 5px; flex-wrap: nowrap;
   align-self: flex-start; /* the bezel hugs its caps, not the panel width */
   background: #17150E; padding: 5px; border-radius: 4px;
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, .6);
@@ -545,7 +586,8 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 .lampbtn.cap-orange.lit  { background: #F7A427; box-shadow: 0 0 12px #F7A42788; }
 
 /* ============================ device widgets ============================ */
-.widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+/* the column is wide enough for a four-cap switch plate in one row */
+.widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 /* a panel whose bezel needs the room takes two columns */
 .rlpanel.span2 { grid-column: span 2; }
 
@@ -561,7 +603,7 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
   flex: 1 1 auto; min-width: 0; padding: 5px 8px; border-radius: var(--r-sm);
   font-family: var(--font-mono); font-size: var(--fs-0); color: var(--rl-ink);
   background: var(--rl-inset); border: 1px solid var(--rl-panel-edge);
-  line-height: 1.6; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rl-img {
   flex: 1 1 auto; min-width: 0; max-width: 260px; padding: 5px 8px; border-radius: var(--r-sm);
@@ -619,6 +661,11 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
   .sidebar { width: 100%; flex: none; height: auto; position: static; }
   .nav { flex-direction: row; flex-wrap: wrap; }
   .sidebar .foot { display: none; }
+  /* stacked: the page scrolls as a whole again */
+  .main { height: auto; }
+  .content { overflow-y: visible; }
+  .page[data-page="log"].active { display: block; }
+  .logcard .logbox { max-height: 70vh; }
 }
 </style>
 </head>
@@ -658,10 +705,9 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
             <div class="card ctrl-card">
               <div class="card-head"><h3>Control</h3></div>
               <div class="card-body ctrl-btns">
-                <button class="btn" id="btn-init">Pulse INIT</button>
-                <button class="btn" id="btn-halt">Halt</button>
-                <button class="btn" id="btn-cont">Continue</button>
-                <span id="pwr-zone"><button class="btn" id="btn-pwr">Power cycle</button></span>
+                <button class="btn danger" data-danger="halt"><span class="lbl"><span class="idle">Halt</span><span class="armed-lbl">Click again to halt</span></span></button>
+                <button class="btn danger" data-danger="continue"><span class="lbl"><span class="idle">Continue</span><span class="armed-lbl">Click again to continue</span></span></button>
+                <button class="btn danger" data-danger="powercycle"><span class="lbl"><span class="idle">Power cycle</span><span class="armed-lbl">Click again to power cycle</span></span></button>
               </div>
             </div>
             <div class="card frontpanel">
@@ -696,10 +742,9 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
                   <option value="off">Off</option>
                 </select>
                 <select id="serial-baud" aria-label="baud rate">
-                  <option>300</option><option>600</option><option>1200</option>
-                  <option>2400</option><option>4800</option><option>9600</option>
-                  <option>19200</option><option selected>38400</option>
-                  <option>57600</option><option>115200</option>
+                  <option>300</option><option>1200</option><option>2400</option>
+                  <option>4800</option><option>9600</option><option>19200</option>
+                  <option selected>38400</option>
                 </select>
                 <button class="btn small" id="serial-connect">Connect</button>
               </span>
@@ -800,13 +845,13 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
               <div class="set-name">Baud</div>
               <div class="set-val">
                 <select id="set-extbaud" class="mono">
-                  <option>300</option><option>600</option><option>1200</option>
-                  <option>2400</option><option>4800</option><option>9600</option>
-                  <option>19200</option><option>38400</option>
-                  <option>57600</option><option>115200</option>
+                  <option>300</option><option>1200</option><option>2400</option>
+                  <option>4800</option><option>9600</option><option>19200</option>
+                  <option>38400</option>
                 </select>
               </div>
-              <div class="set-info">Line speed for the ttyS2 source.</div>
+              <div class="set-info">Line speed for the ttyS2 source. The dashboard's
+                console tab carries the same selector.</div>
             </div>
             <div id="set-ext-note" class="muted" style="font-size:var(--fs-0); margin-top:10px"></div>
           </div>
@@ -815,9 +860,8 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
 
       <!-- ============================ LOG ============================ -->
       <section class="page" data-page="log">
-        <div class="card" style="margin-bottom:14px">
+        <div class="card logcard">
           <div class="card-head">
-            <h3>Log</h3>
             <div class="filter-row" style="margin:0 0 0 auto" id="log-filters">
               <span class="chip err" data-lvl="ERROR">error</span>
               <span class="chip warn" data-lvl="WARNING">warning</span>
@@ -825,9 +869,8 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
               <span class="chip off inactive" data-lvl="DEBUG">debug</span>
             </div>
           </div>
-          <div class="card-body logbox" id="diag-log" style="max-height:240px"></div>
+          <div class="card-body logbox" id="diag-log"></div>
         </div>
-
       </section>
 
     </main>
@@ -1073,6 +1116,16 @@ document.addEventListener('change', e => {
     putSettings({ external_console: { source: e.target.value } }, 'console source set');
   else if (e.target.id === 'set-extbaud')
     putSettings({ external_console: { baud: parseInt(e.target.value, 10) } }, 'baud set');
+  else if (e.target.id === 'serial-baud') {
+    /* the tab-bar selector speaks to whichever port the source names: the
+       BeagleBone UART is a machine setting, a Web Serial port is local and
+       takes its speed when it is opened */
+    const baud = parseInt(e.target.value, 10);
+    if ((SETTINGS.external_console || {}).source === 'ttys2')
+      putSettings({ external_console: { baud } }, 'baud set');
+    else
+      localStorage.setItem('webserial.baud', String(baud));
+  }
 });
 /* the dashboard "Console" tab follows the external-console source: a
    browser-local Web Serial port (the Mac) or the BeagleBone's ttyS2 via
@@ -1102,7 +1155,13 @@ let updateConsoleSource = function () {
   extConsoleDisconnectWs();
   const webserial = src === 'webserial';
   $('#serial-connect').style.display = webserial ? '' : 'none';
-  $('#serial-baud').style.display = webserial ? '' : 'none';
+  /* both ports have a line speed, so the selector stays with either source */
+  const baud = $('#serial-baud');
+  baud.style.display = src === 'off' ? 'none' : '';
+  baud.disabled = false;
+  baud.value = webserial
+    ? (localStorage.getItem('webserial.baud') || '38400')
+    : String((SETTINGS.external_console || {}).baud || 38400);
   // status belongs in the tab bar, never in the terminal: everything on
   // screen there came from the host
   if (src === 'ttys2')
@@ -1378,8 +1437,6 @@ async function serialDisconnect() {
 
 function wireSerial() {
   const t = TERMS.serial;
-  const baud = $('#serial-baud');
-  baud.value = localStorage.getItem('webserial.baud') || '38400';
   /* keystrokes route to whichever transport the current source uses */
   t.term.onData(d => {
     if ((SETTINGS.external_console || {}).source === 'ttys2') {
@@ -1484,12 +1541,6 @@ const PAGES = [
   ['dashboard','Dashboard'], ['devices','Devices'], ['storage','Storage'],
   ['configurations','Configurations'], ['machine','Machine'], ['log','Log'],
 ];
-function enabledCount() {
-  let en = 0, all = 0;
-  DEVMODEL.forEach(d => { all++; if (d.enabled) en++; (d.drives||[]).forEach(x => { all++; if (x.enabled) en++; }); });
-  return en + ' / ' + all;
-}
-function navCount(id) { return id === 'devices' ? '<span class="count">' + enabledCount() + '</span>' : ''; }
 function renderDevChips() {
   const el = $('#tile-devchips');
   if (!el) return; /* the dashboard tile was removed; kept for any future host */
@@ -1499,7 +1550,7 @@ function renderDevChips() {
 }
 function renderNav() {
   $('#nav').innerHTML = PAGES.map(([id, label]) =>
-    '<button data-nav="' + id + '"><span>' + label + '</span>' + navCount(id) + '</button>').join('');
+    '<button data-nav="' + id + '"><span>' + label + '</span></button>').join('');
 }
 function show(pageId) {
   $$('.page').forEach(p => p.classList.toggle('active', p.dataset.page === pageId));
@@ -1780,15 +1831,104 @@ document.addEventListener('click', e => {
   }
 });
 
+/* A modal the caller awaits; resolves true only when the user confirms.
+   body is trusted markup built by the caller, which escapes what it inserts. */
+function confirmModal(title, body, confirmLabel) {
+  return new Promise(resolve => {
+    const host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.innerHTML =
+      '<div class="card modal-card">' +
+        '<div class="card-head"><h3>' + esc(title) + '</h3>' +
+          '<button class="modal-close" data-cm-no aria-label="Close" title="Close">&times;</button></div>' +
+        '<div class="card-body">' +
+          '<p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' + body + '</p>' +
+          '<div style="display:flex; gap:8px; justify-content:flex-end">' +
+            '<button class="btn" data-cm-no>Cancel</button>' +
+            '<button class="btn danger" data-cm-yes>' + esc(confirmLabel) + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    const done = v => {
+      host.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    };
+    function onKey(ev) { if (ev.key === 'Escape') done(false); }
+    host.addEventListener('click', ev => {
+      if (ev.target === host || ev.target.closest('[data-cm-no]')) done(false);
+      else if (ev.target.closest('[data-cm-yes]')) done(true);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(host);
+    host.querySelector('[data-cm-yes]').focus();
+  });
+}
+
 /* ---------------- live configurations: /api/configs ---------------- */
 /* A configuration is a named JSON snapshot of the device setup (enabled
    devices + writable parameter values), saved from and applied to the
    live parameter system. */
+/* A snapshot reduced to a canonical string, so the live setup and a saved
+   file can be compared regardless of device or parameter order. Both sides
+   come from the same backend snapshot code, which already omits everything
+   at its construction default. */
+function cfgKey(snap) {
+  return ((snap || {}).devices || [])
+    .filter(d => d.enabled)
+    .map(d => {
+      const p = d.params || {};
+      return d.name + '{' + Object.keys(p).sort().map(k => k + '=' + p[k]).join(',') + '}';
+    })
+    .sort().join('|');
+}
+/* A configuration reads like the devices page: the devices it switches on,
+   each with the parameters it pins. Everything it does not name is switched
+   off and left at its default. */
+function cfgDevicesHtml(snap) {
+  const devs = ((snap || {}).devices || []).filter(d => d.enabled);
+  if (!devs.length)
+    return '<div class="muted" style="padding:10px 14px; font-size:var(--fs-1)">' +
+           'This configuration switches every device off.</div>';
+  return devs.map(d => {
+    const names = Object.keys(d.params || {}).sort();
+    return '<div class="dev-sub">' +
+        '<span class="devname">' + esc(d.name) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<span class="chip ok">enabled</span>' +
+      '</div>' +
+      '<div class="params">' + (names.length
+        ? '<div class="p-grid">' + names.map(n =>
+            '<div class="p-name">' + esc(n) + '</div>' +
+            '<div class="p-val"><span class="ro">' + esc(String(d.params[n])) + '</span></div>'
+          ).join('') + '</div>'
+        : '<span class="muted" style="font-size:var(--fs-1)">all parameters at their defaults</span>') +
+      '</div>';
+  }).join('');
+}
 async function refreshConfigs() {
   const r = await fetch('/api/configs');
   if (!r.ok) throw new Error('configs fetch failed');
   const configs = await r.json();
+  /* The live setup, and every saved snapshot, as canonical keys: the one that
+     matches is the configuration currently loaded. The machine can refuse the
+     snapshot while it is busy (503) — then nothing is claimed to be loaded and
+     saving stays offered, rather than guessing from an empty answer. */
+  let current = null;
+  try {
+    const cr = await fetch('/api/configs?current=1', { signal: AbortSignal.timeout(4000) });
+    if (cr.ok) current = await cr.json();
+  } catch (e) { /* busy or unreachable: leave it unknown */ }
+  const currentKey = current && cfgKey(current);
+  await Promise.all(configs.map(async c => {
+    c.snapshot = await fetch('/api/configs/' + encodeURIComponent(c.name),
+        { signal: AbortSignal.timeout(4000) }).then(x => x.json()).catch(() => null);
+    c.loaded = current != null && c.snapshot != null && cfgKey(c.snapshot) === currentKey;
+  }));
+  /* saving only makes sense while the setup differs from every snapshot */
+  const alreadySaved = configs.some(c => c.loaded);
   $('#cfg-list').innerHTML =
+    (alreadySaved ? '' :
     '<div class="card cfg-row">' +
       '<div class="card-head">' +
         '<h3>Save current setup</h3>' +
@@ -1798,20 +1938,23 @@ async function refreshConfigs() {
           '<button class="btn small primary" id="cfg-save">Save</button>' +
         '</span>' +
       '</div>' +
-    '</div>' +
+    '</div>') +
     configs.map(c =>
       '<div class="card cfg-row">' +
         '<div class="card-head">' +
           '<h3>' + esc(c.name) + '</h3>' +
           '<span class="muted" style="font-size:var(--fs-0)">' + esc(c.mtime) + '</span>' +
-          (c.enabled || []).map(d => '<span class="chip ok">' + esc(d) + '</span>').join(' ') +
+          (c.loaded ? '<span class="chip ok">loaded</span>' : '') +
+          (c.enabled || []).map(d => '<span class="chip out">' + esc(d) + '</span>').join(' ') +
           '<span style="margin-left:auto; display:flex; gap:8px">' +
             '<button class="btn small" data-cfg-view="' + esc(c.name) + '">View</button>' +
-            '<button class="btn small primary" data-cfg-apply="' + esc(c.name) + '">Apply</button>' +
+            '<button class="btn small primary" data-cfg-apply="' + esc(c.name) + '"' +
+              (c.loaded ? ' disabled title="already loaded"' : '') + '>Apply</button>' +
             '<button class="btn small" data-cfg-del="' + esc(c.name) + '">Delete</button>' +
           '</span>' +
         '</div>' +
-        '<pre class="cfg-cmd" data-cfg-json="' + esc(c.name) + '"></pre>' +
+        '<div class="cfg-devs" data-cfg-devs="' + esc(c.name) + '" hidden>' +
+          cfgDevicesHtml(c.snapshot) + '</div>' +
       '</div>').join('');
   if (!configs.length)
     $('#cfg-list').innerHTML += '<div class="muted" style="padding:8px">No saved configurations yet.</div>';
@@ -1827,20 +1970,27 @@ document.addEventListener('click', async e => {
   }
   const v = e.target.closest('[data-cfg-view]');
   if (v) {
-    const el = document.querySelector('pre[data-cfg-json="' + CSS.escape(v.dataset.cfgView) + '"]');
-    if (el.classList.toggle('open') && !el.textContent) {
-      const r = await fetch('/api/configs/' + encodeURIComponent(v.dataset.cfgView));
-      el.textContent = r.ok ? JSON.stringify(await r.json(), null, 2) : 'unreadable';
-    }
+    const el = document.querySelector('[data-cfg-devs="' + CSS.escape(v.dataset.cfgView) + '"]');
+    el.hidden = !el.hidden;
   }
   const a = e.target.closest('[data-cfg-apply]');
-  if (a) {
-    const r = await fetch('/api/configs/' + encodeURIComponent(a.dataset.cfgApply) + '/apply', { method: 'POST' });
+  if (a && !a.disabled) {
+    const name = a.dataset.cfgApply;
+    /* applying rewrites the whole device setup, so a machine that is running
+       loses whatever it was doing */
+    if (!busState.halted && !await confirmModal(
+          'Apply while the PDP-11 is running?',
+          'The CPU is running. Applying <b>' + esc(name) + '</b> reconfigures every ' +
+          'device — drives are detached and reattached, and the running system will ' +
+          'not survive it.', 'Apply anyway'))
+      return;
+    const r = await fetch('/api/configs/' + encodeURIComponent(name) + '/apply', { method: 'POST' });
     const data = await r.json().catch(() => ({}));
-    toast('POST /api/configs/' + a.dataset.cfgApply + '/apply',
+    toast('POST /api/configs/' + name + '/apply',
         r.ok && data.ok ? 'configuration applied'
         : 'applied with rejections: ' + ((data.errors || []).join('; ') || 'request failed'));
     refreshDevices().catch(() => {});
+    refreshConfigs().catch(() => {});
   }
   const d = e.target.closest('[data-cfg-del]');
   if (d) {
@@ -1931,8 +2081,9 @@ function rlWidget(d) {
   const ready = hasLamps ? lampOn(d, 'readylamp') : d.enabled;
   const fault = hasLamps ? lampOn(d, 'faultlamp') : false;
   const wp    = hasLamps ? lampOn(d, 'writeprotectlamp') : false;
+  /* the unit number is on the READY cap, as on the drive */
   return '<div class="rlpanel">' +
-    '<div class="plabel"><span>' + esc(d.type) + ' · UNIT ' + esc(unit) + '</span><span>' + esc(d.name) + '</span></div>' +
+    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
     '<div class="lamps">' +
       '<button class="lampbtn cap-yellow' + (load ? ' lit' : '') + '" data-rl-load="' + esc(d.name) + '">LOAD</button>' +
       '<button class="lampbtn cap-white' + (ready ? ' lit' : '') + '" disabled><span class="num">' + esc(unit) + '</span>READY</button>' +
@@ -1948,10 +2099,10 @@ function cap(cls, lit, body, attrs) {
   return '<button class="lampbtn ' + cls + (lit ? ' lit' : '') + '"' + (attrs || ' disabled') +
          '>' + body + '</button>';
 }
+/* unit is carried by the READY cap, so the label names only the model */
 function panel(d, unit, caps, foot, panelCls) {
-  const label = esc(d.type) + (unit === '' ? '' : ' · UNIT ' + esc(unit));
   return '<div class="rlpanel' + (panelCls ? ' ' + panelCls : '') + '">' +
-    '<div class="plabel"><span>' + label + '</span><span>' + esc(d.name) + '</span></div>' +
+    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
     '<div class="lamps">' + caps + '</div>' +
     '<div class="rl-foot">' + foot + '</div>' +
     '</div>';
@@ -1998,7 +2149,7 @@ function diskWidget(d) {
 /* class default: network */
 function networkWidget(d) {
   const iface = paramVal(d, 'interface'), mac = paramVal(d, 'mac');
-  const info = (iface ? esc(iface) : '&mdash;') + '<br>' + (mac ? esc(mac) : '&mdash;');
+  const info = (iface ? esc(iface) : '&mdash;') + ' · ' + (mac ? esc(mac) : '&mdash;');
   return panel(d, '',
     cap('cap-white', d.enabled, 'LINK') +
     cap('cap-yellow', lampOn(d, 'activitylamp'), 'ACT'),
@@ -2121,40 +2272,47 @@ function renderBus(initFlash) {
   $('#bus-halt').className = 'chip ' + (busState.halted ? 'warn' : 'out');
   $('#bus-init').className = 'chip ' + ((initFlash || busState.init) ? 'ok' : 'out');
 }
-$('#btn-init').addEventListener('click', () => {
-  if (LIVE) liveControl('init', 'bus INIT pulsed');
-  else toast('init', 'Bus INIT pulsed');
-  renderBus(true); setTimeout(() => renderBus(false), 600);
-});
-$('#btn-halt').addEventListener('click', () => {
-  if (LIVE) liveControl('halt', 'HALT asserted — CPU stopped');
-  else toast('h 1', 'HALT asserted — CPU stopped');
-  busState.halted = true; renderBus(false);
-});
-$('#btn-cont').addEventListener('click', () => {
-  if (LIVE) liveControl('continue', 'HALT released — CPU running');
-  else toast('h 0', 'HALT released — CPU running');
-  busState.halted = false; renderBus(false);
-});
-
-/* power cycle: confirm inline, then simulate the DCOK/POK sequence */
-const PWR_IDLE = '<button class="btn" id="btn-pwr">Power cycle</button>';
-document.addEventListener('click', e => {
-  if (e.target.closest('#btn-pwr')) {
-    $('#pwr-zone').innerHTML =
-      '<span class="muted" style="font-size:var(--fs-1)">Restarts the PDP-11 (simulated DCOK/POK) —</span>' +
-      '<button class="btn primary" id="btn-pwr-yes">Confirm</button>' +
-      '<button class="btn" id="btn-pwr-no">Cancel</button>';
-  }
-  if (e.target.closest('#btn-pwr-no')) $('#pwr-zone').innerHTML = PWR_IDLE;
-  if (e.target.closest('#btn-pwr-yes')) {
-    $('#pwr-zone').innerHTML = PWR_IDLE;
+/* Each of these interrupts the running machine, so a click only arms the
+   button and the next one fires it. The arming lapses after five seconds,
+   and any click elsewhere on the page drops it. */
+const ARM_MS = 5000;
+const DANGER_ACTIONS = {
+  halt: () => {
+    if (LIVE) liveControl('halt', 'HALT asserted — CPU stopped');
+    else toast('h 1', 'HALT asserted — CPU stopped');
+    busState.halted = true; renderBus(false);
+  },
+  continue: () => {
+    if (LIVE) liveControl('continue', 'HALT released — CPU running');
+    else toast('h 0', 'HALT released — CPU running');
+    busState.halted = false; renderBus(false);
+  },
+  powercycle: () => {
     if (LIVE) liveControl('powercycle', 'devices reset, CPU reboots');
     else toast('pwr', 'Power-fail cycle on the bus — devices reset, CPU reboots');
     busState.halted = false;
     $('#bus-run').className = 'chip out';
     setTimeout(() => renderBus(false), 1200);
+  },
+};
+let armedBtn = null, armTimer = null;
+function disarm() {
+  if (armedBtn) armedBtn.classList.remove('armed');
+  armedBtn = null;
+  clearTimeout(armTimer);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-danger]');
+  if (!b) { disarm(); return; }
+  if (armedBtn !== b) {
+    disarm();
+    armedBtn = b;
+    b.classList.add('armed');
+    armTimer = setTimeout(disarm, ARM_MS);
+    return;
   }
+  disarm();
+  DANGER_ACTIONS[b.dataset.danger]();
 });
 
 /* ------------------- ambient activity (mock page only) ------------------- */

@@ -105,6 +105,13 @@ device's enabled state and writable parameter values — stored in
 [{"name": "rt11", "mtime": "2026-07-16 20:52", "enabled": ["RL11", "rl0"]}]
 ```
 
+### `GET /api/configs?current=1`
+
+The live setup in the same shape a saved snapshot has, so a caller can compare
+it against the saved ones and tell which — if any — is the configuration
+currently loaded. Answers `503` while the machine is busy, the snapshot being a
+status query that gives up rather than waiting on the device registry.
+
 ### `GET /api/configs/<name>`
 
 The full snapshot:

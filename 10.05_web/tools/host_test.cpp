@@ -195,11 +195,55 @@ static int fixture_images_handler(struct mg_connection *conn, void *) {
 	return 200;
 }
 
+/* Two saved snapshots and the live setup, in the shape webconfigs.cpp emits:
+   "rt11" is what the fixture device set is currently running, so the frontend
+   marks it as the loaded configuration; "xxdp" differs. */
+static const char *fixture_config_rt11 =
+	"{\"devices\":["
+	"{\"name\":\"rl\",\"enabled\":true,\"params\":{}},"
+	"{\"name\":\"rl0\",\"enabled\":true,\"params\":{\"image\":\"rt11v53.rl02\"}},"
+	"{\"name\":\"rl1\",\"enabled\":true,\"params\":{\"image\":\"games.rl02\",\"writeprotectbutton\":\"1\"}},"
+	"{\"name\":\"DL11\",\"enabled\":true,\"params\":{\"serialport\":\"ttyS2\"}},"
+	"{\"name\":\"delqa\",\"enabled\":true,\"params\":{\"mac\":\"08:00:2b:24:8d:47\"}}"
+	"]}";
+static const char *fixture_config_xxdp =
+	"{\"devices\":["
+	"{\"name\":\"rl\",\"enabled\":true,\"params\":{}},"
+	"{\"name\":\"rl0\",\"enabled\":true,\"params\":{\"image\":\"xxdp25.rl02\"}},"
+	"{\"name\":\"DL11\",\"enabled\":true,\"params\":{\"serialport\":\"ttyS2\"}}"
+	"]}";
+static const char *fixture_configs_list =
+	"[{\"name\":\"rt11\",\"mtime\":\"2026-07-19 09:12\",\"enabled\":[\"rl\",\"rl0\",\"rl1\",\"DL11\",\"delqa\"]},"
+	"{\"name\":\"xxdp\",\"mtime\":\"2026-07-18 21:40\",\"enabled\":[\"rl\",\"rl0\",\"DL11\"]}]";
+
+// GET /api/configs[?current=1], GET/PUT/DELETE /api/configs/<name>,
+// POST /api/configs/<name>/apply
+static int fixture_configs_handler(struct mg_connection *conn, void *) {
+	const struct mg_request_info *ri = mg_get_request_info(conn);
+	std::string rest = std::string(ri->local_uri ? ri->local_uri : "")
+			.substr(strlen("/api/configs"));
+	if (rest.empty() || rest == "/") {
+		const char *q = ri->query_string;
+		// the live setup matches the "rt11" snapshot
+		fixture_send(conn, q != nullptr && strstr(q, "current") != nullptr
+				? fixture_config_rt11 : fixture_configs_list);
+		return 200;
+	}
+	if (strcmp(ri->request_method, "GET") == 0) {
+		fixture_send(conn, rest == "/xxdp" ? fixture_config_xxdp : fixture_config_rt11);
+		return 200;
+	}
+	fprintf(stderr, "fixture %s %s\n", ri->request_method, ri->local_uri);
+	fixture_send(conn, "{\"ok\":true,\"errors\":[]}");
+	return 200;
+}
+
 void webapi_register(struct mg_context *ctx) {
 	mg_set_request_handler(ctx, "/api/devices", fixture_devices_handler, nullptr);
 	mg_set_request_handler(ctx, "/api/control", fixture_control_handler, nullptr);
 	mg_set_request_handler(ctx, "/api/settings", fixture_settings_handler, nullptr);
 	mg_set_request_handler(ctx, "/api/images", fixture_images_handler, nullptr);
+	mg_set_request_handler(ctx, "/api/configs", fixture_configs_handler, nullptr);
 }
 
 void webapi_shutdown(void) {

@@ -137,11 +137,16 @@ bool webserver_c::start(void) {
 	// each connected WebSocket occupies one worker thread for its lifetime
 	// (2 per open page: events + console), so the pool must cover several
 	// browser sessions plus concurrent REST requests
+	//
+	// the frontend is a single file that changes with every deploy, so browsers
+	// must revalidate it rather than serve an hour-old copy from cache; the
+	// ETag makes that a 304 in the common case
 	const char *options[] = { //
 			"document_root", docroot.c_str(), //
 			"listening_ports", portstr, //
 			"num_threads", "16", //
 			"enable_directory_listing", "no", //
+			"static_file_max_age", "0", //
 			nullptr };
 
 	const char *password = getenv("WEBUI_PASSWORD");
