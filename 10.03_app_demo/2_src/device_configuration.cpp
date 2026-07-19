@@ -83,6 +83,7 @@ device_configuration_c::device_configuration_c(bool with_emulated_CPU) :
 #elif defined(QBUS)
 	RX11 = new RXV11_c();
 	RX211 = new RXV21_c();
+	DELQA = new delqa_c();
 	(void) with_emulated_CPU; // no emulated CPU on QBUS
 #endif
 }
@@ -105,6 +106,8 @@ device_configuration_c::~device_configuration_c() {
 	delete RX211;
 
 #if defined(QBUS)
+	DELQA->enabled.set(false);
+	delete DELQA;
 #endif
 
 	LTC->enabled.set(false);
