@@ -15,8 +15,10 @@
 #include "rk11.hpp"
 
 
-class rk05_c: public storagedrive_c 
+class rk05_c: public storagedrive_c
 {
+public:
+	bool removable(void) const override { return true; }
 private:
         // Current position of the heads 
         volatile uint32_t _current_cylinder;

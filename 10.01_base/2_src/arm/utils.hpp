@@ -31,6 +31,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <time.h> // struct tm
 
 #include <string>
 #include <algorithm> // TRIM_STRING

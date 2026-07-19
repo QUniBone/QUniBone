@@ -90,6 +90,7 @@ RX11_c::RX11_c(void) :    storagecontroller_c()
 
     // Both drives are controlled by a single micro processor inside the double-drive box.
     uCPU = new RX0102uCPU_c(this);
+    uCPU->parent = this; // the box is part of the RX subsystem
 
     // add 2 RX disk drives
     drivecount = 2;

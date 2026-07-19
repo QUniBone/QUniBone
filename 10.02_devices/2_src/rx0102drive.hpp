@@ -38,6 +38,8 @@
 
 class RX0102uCPU_c;
 class RX0102drive_c: public storagedrive_c {
+public:
+    bool removable(void) const override { return true; }
 private:
 
     volatile unsigned cylinder; // current head position

@@ -76,6 +76,16 @@ class storagecontroller_c;
 
 class storagedrive_c: public device_c {
     friend class storagedrive_selftest_c ;
+public:
+    // storage drives are disks unless a subclass (e.g. a future tape
+    // drive) reports otherwise for the web UI widget framework.
+    const char *category(void) const override { return "disk"; }
+    // removable media (pack/cartridge/floppy) versus a fixed disk
+    virtual bool removable(void) const { return false; }
+    // while locked, the emulated machine holds the medium and it cannot be
+    // swapped. Base: the host lock flag; drives with a real door/spin state
+    // (RL) override this with that state.
+    virtual bool locked(void) const { return lock.value; }
 private:
     uint8_t	zeros[4096] ; // a block of 00s
 
@@ -112,6 +122,19 @@ public:
     parameter_unsigned_c activity_led = parameter_unsigned_c(this, "activityled", "al", /*readonly*/
                                         false, "", "%d", "Number of LED to used for activity display.", 8, 10);
 
+    // Lit while the drive is transferring, held on past the end of the access
+    // so a periodic sampler sees it. Named "*lamp" like the RL02 panel lamps,
+    // which is what the event stream publishes.
+    parameter_bool_c access_lamp = parameter_bool_c(this, "accesslamp", "acl", /*readonly*/
+                                   true, "State of ACCESS lamp");
+
+    void refresh_activity(void) override ;
+
+    // host lock: while set, the medium cannot be swapped. Meaningful for
+    // removable non-RL drives; RL drives derive locked() from their spin state.
+    parameter_bool_c lock = parameter_bool_c(this, "lock", "lk", false,
+                            "Host lock: medium cannot be changed while set");
+
     virtual bool on_param_changed(parameter_c *param) override;
 
 //	parameter_bool_c writeprotect = parameter_bool_c(this, "writeprotect", "wp", /*readonly*/false, "Medium is write protected, different reasons") ;
@@ -142,6 +165,7 @@ public:
     void image_clear_remaining_block_bytes(unsigned block_size_bytes, uint64_t position, unsigned len) ;
 
     void set_activity_led(bool onoff) ;
+    uint64_t access_lamp_until_ms = 0 ; // access_lamp stays lit until then
 };
 
 class storagedrive_selftest_c: public storagedrive_c {

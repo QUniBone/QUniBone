@@ -1,0 +1,451 @@
+/* webconfigs.cpp: /api/configs — named device-setup snapshots
+
+   Copyright (c) 2026, Hans Huebner
+   hans@huebner.org
+   MIT license, see webserver.hpp for the full text.
+
+   A configuration is a JSON snapshot of the emulated device setup, taken from
+   and applied to the live parameter system — the same calls the devices menu
+   and the REST parameter endpoint make.
+
+   It describes the whole machine while naming as little as possible: the
+   devices that are switched on, and of those only the parameters that differ
+   from the values the devices were constructed with. Applying one therefore
+   switches off every device it does not name and returns every parameter it
+   does not name to that construction default.
+
+     GET    /api/configs               list: name, mtime, enabled devices
+     GET    /api/configs/<name>        full snapshot content
+     PUT    /api/configs/<name>        save the current setup under <name>
+     POST   /api/configs/<name>/apply  restore a snapshot (best effort,
+                                       returns the rejections)
+     DELETE /api/configs/<name>        remove a snapshot
+
+   Files live in $QUNIBONE_DIR/configs/<name>.json:
+
+     {"devices":[{"name":"RL11","enabled":true,
+                  "params":{"address":"160010", ...}}, ...]}
+*/
+
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <fstream>
+#include <list>
+#include <map>
+#include <mutex>
+#include <set>
+#include <sstream>
+#include <string>
+
+#include "civetweb.h"
+#include "picojson.h"
+
+#include "logger.hpp"
+#include "device.hpp"
+#include "parameter.hpp"
+#include "qunibusadapter.hpp"
+#include "panel.hpp"
+#include "mscp_server.hpp"
+#include "device_configuration.hpp"
+
+#include "webconfigs.hpp"
+
+static std::string configs_dir;
+
+static bool valid_config_name(const std::string &name) {
+	if (name.empty() || name.size() > 64)
+		return false;
+	for (char c : name)
+		if (!isalnum(c) && c != '-' && c != '_' && c != '.' && c != ' ')
+			return false;
+	return name[0] != '.';
+}
+
+static std::string config_path(const std::string &name) {
+	return configs_dir + "/" + name + ".json";
+}
+
+static void send_json(struct mg_connection *conn, int status, const picojson::value &val) {
+	std::string body = val.serialize();
+	mg_printf(conn,
+			"HTTP/1.1 %d %s\r\n"
+			"Content-Type: application/json\r\n"
+			"Cache-Control: no-store\r\n"
+			"Content-Length: %u\r\n\r\n",
+			status, status == 200 ? "OK" : "Error", (unsigned) body.size());
+	mg_write(conn, body.c_str(), body.size());
+}
+
+static void send_error(struct mg_connection *conn, int status, const std::string &message) {
+	picojson::object err;
+	err["error"] = picojson::value(message);
+	send_json(conn, status, picojson::value(err));
+}
+
+static bool device_is_infrastructure(device_c *d) {
+	return dynamic_cast<qunibusadapter_c *>(d) != nullptr
+			|| dynamic_cast<paneldriver_c *>(d) != nullptr
+			|| dynamic_cast<mscp_server *>(d) != nullptr;
+}
+
+// Parameter values as the devices were constructed. Captured once at
+// registration, which application.cpp reaches directly after devices_startup()
+// and before anything can have changed them, so this is what "default" means.
+// A parameter absent from the map is always written.
+//
+// Writability is captured with it. A drive locks its image parameters while a
+// pack spins, and that lock would otherwise drop the mounted image out of the
+// configuration that needs it. What the device was built with says whether an
+// operator may set it; what it reads now only says whether this moment suits.
+struct param_default_t {
+	std::string value;
+	bool writable;
+};
+static std::map<parameter_c *, param_default_t> parameter_defaults;
+
+static void capture_parameter_defaults(void) {
+	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+	for (device_c *dev : device_c::mydevices)
+		for (parameter_c *p : dev->parameter) {
+			param_default_t d;
+			d.value = *p->render();
+			d.writable = !p->readonly;
+			parameter_defaults[p] = d;
+		}
+}
+
+static bool is_default(parameter_c *p) {
+	std::map<parameter_c *, param_default_t>::iterator it = parameter_defaults.find(p);
+	return it != parameter_defaults.end() && it->second.value == *p->render();
+}
+
+// an operator may set this, whatever a transient lock says right now
+static bool is_settable(parameter_c *p) {
+	std::map<parameter_c *, param_default_t>::iterator it = parameter_defaults.find(p);
+	return it == parameter_defaults.end() ? !p->readonly : it->second.writable;
+}
+
+// Put a device back the way it was constructed. Parameters named in "keep" are
+// left alone, the caller being about to set them.
+static void reset_to_defaults(device_c *dev, const std::set<std::string> *keep,
+		picojson::array *errors) {
+	for (parameter_c *p : dev->parameter) {
+		if (p->readonly || is_default(p))
+			continue;
+		if (keep != nullptr && keep->count(p->name))
+			continue;
+		std::map<parameter_c *, param_default_t>::iterator it = parameter_defaults.find(p);
+		if (it == parameter_defaults.end())
+			continue;
+		try {
+			p->parse(it->second.value);
+		} catch (bad_parameter &e) {
+			if (errors != nullptr)
+				errors->push_back(picojson::value(
+						dev->name.value + "." + p->name + ": " + e.what()));
+		}
+	}
+}
+
+// A configuration describes the whole machine: it carries the devices that are
+// switched on and, of those, only the parameters that differ from the
+// construction defaults. Everything it does not mention is off and default.
+static picojson::value snapshot_devices(void) {
+	picojson::array devices;
+	std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
+	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+	for (device_c *dev : device_c::mydevices) {
+		if (device_is_infrastructure(dev) || !dev->enabled.value)
+			continue;
+		picojson::object o;
+		o["name"] = picojson::value(dev->name.value);
+		o["enabled"] = picojson::value(true);
+		picojson::object params;
+		for (parameter_c *p : dev->parameter) {
+			if (!is_settable(p) || is_default(p))
+				continue;
+			params[p->name] = picojson::value(*p->render());
+		}
+		o["params"] = picojson::value(params);
+		devices.push_back(picojson::value(o));
+	}
+	picojson::object root;
+	root["devices"] = picojson::value(devices);
+	return picojson::value(root);
+}
+
+static bool read_config(const std::string &name, picojson::value *out,
+		std::string *err) {
+	std::ifstream in(config_path(name).c_str());
+	if (!in.is_open()) {
+		*err = "unknown configuration \"" + name + "\"";
+		return false;
+	}
+	std::stringstream buffer;
+	buffer << in.rdbuf();
+	std::string parse_err = picojson::parse(*out, buffer.str());
+	if (!parse_err.empty()) {
+		*err = "unreadable configuration \"" + name + "\": " + parse_err;
+		return false;
+	}
+	return true;
+}
+
+// deleting an image must not break a saved configuration
+std::string webconfigs_image_referenced(const std::string &image_name) {
+	DIR *dir = opendir(configs_dir.c_str());
+	if (dir == nullptr)
+		return "";
+	struct dirent *entry;
+	while ((entry = readdir(dir)) != nullptr) {
+		std::string fname = entry->d_name;
+		if (fname.size() < 6 || fname.compare(fname.size() - 5, 5, ".json") != 0)
+			continue;
+		std::string name = fname.substr(0, fname.size() - 5);
+		picojson::value content;
+		std::string err;
+		if (!read_config(name, &content, &err)
+				|| !content.get("devices").is<picojson::array>())
+			continue;
+		for (picojson::value &d : content.get("devices").get<picojson::array>()) {
+			if (!d.get("params").is<picojson::object>())
+				continue;
+			const picojson::object &params = d.get("params").get<picojson::object>();
+			picojson::object::const_iterator it = params.find("image");
+			if (it == params.end() || !it->second.is<std::string>())
+				continue;
+			const std::string &path = it->second.get<std::string>();
+			size_t base = path.rfind('/');
+			if (path.compare(base == std::string::npos ? 0 : base + 1,
+					std::string::npos, image_name) == 0) {
+				closedir(dir);
+				return name;
+			}
+		}
+	}
+	closedir(dir);
+	return "";
+}
+
+// GET /api/configs
+static void configs_list(struct mg_connection *conn) {
+	picojson::array configs;
+	DIR *dir = opendir(configs_dir.c_str());
+	if (dir != nullptr) {
+		struct dirent *entry;
+		while ((entry = readdir(dir)) != nullptr) {
+			std::string fname = entry->d_name;
+			if (fname.size() < 6 || fname.compare(fname.size() - 5, 5, ".json") != 0)
+				continue;
+			std::string name = fname.substr(0, fname.size() - 5);
+			struct stat st;
+			if (stat(config_path(name).c_str(), &st) != 0)
+				continue;
+			picojson::object o;
+			o["name"] = picojson::value(name);
+			char mtime[32];
+			strftime(mtime, sizeof(mtime), "%Y-%m-%d %H:%M",
+					localtime(&st.st_mtime));
+			o["mtime"] = picojson::value(mtime);
+			// the enabled devices, as the card summary
+			picojson::value content;
+			std::string err;
+			picojson::array enabled;
+			if (read_config(name, &content, &err) && content.get("devices").is<picojson::array>())
+				for (picojson::value &d : content.get("devices").get<picojson::array>())
+					if (d.get("enabled").is<bool>() && d.get("enabled").get<bool>())
+						enabled.push_back(d.get("name"));
+			o["enabled"] = picojson::value(enabled);
+			configs.push_back(picojson::value(o));
+		}
+		closedir(dir);
+	}
+	send_json(conn, 200, picojson::value(configs));
+}
+
+// PUT /api/configs/<name> — save the current setup
+static void config_save(struct mg_connection *conn, const std::string &name) {
+	std::string body = snapshot_devices().serialize();
+	std::ofstream out(config_path(name).c_str());
+	if (!out.is_open()) {
+		send_error(conn, 500, "cannot write configuration \"" + name + "\"");
+		return;
+	}
+	out << body;
+	out.close();
+	printf("\nweb: configuration \"%s\" saved\n", name.c_str());
+	picojson::object res;
+	res["ok"] = picojson::value(true);
+	send_json(conn, 200, picojson::value(res));
+}
+
+// POST /api/configs/<name>/apply — restore a snapshot. Devices are stored
+// in registry order (controllers before their drives), so applying in
+// order enables controllers first. Rejections are collected, not fatal.
+static void config_apply(struct mg_connection *conn, const std::string &name) {
+	picojson::value content;
+	std::string err;
+	if (!read_config(name, &content, &err)) {
+		send_error(conn, 404, err);
+		return;
+	}
+	if (!content.get("devices").is<picojson::array>()) {
+		send_error(conn, 422, "configuration has no devices");
+		return;
+	}
+	picojson::array errors;
+	{
+		std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
+
+		// The configuration is the whole machine, so anything it leaves out is
+		// switched off and back at its defaults. Work backwards through the
+		// registry so drives go before the controllers they hang off.
+		std::set<std::string> mentioned;
+		for (picojson::value &d : content.get("devices").get<picojson::array>())
+			if (d.get("name").is<std::string>())
+				mentioned.insert(d.get("name").get<std::string>());
+		{
+			std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+			for (std::list<device_c *>::reverse_iterator it = device_c::mydevices.rbegin();
+					it != device_c::mydevices.rend(); ++it) {
+				device_c *dev = *it;
+				if (device_is_infrastructure(dev))
+					continue;
+				bool named = false;
+				for (const std::string &n : mentioned)
+					if (strcasecmp(n.c_str(), dev->name.value.c_str()) == 0) {
+						named = true;
+						break;
+					}
+				if (named)
+					continue;
+				if (dev->enabled.value)
+					dev->enabled.set(false);
+				reset_to_defaults(dev, nullptr, &errors);
+			}
+		}
+
+		for (picojson::value &d : content.get("devices").get<picojson::array>()) {
+			if (!d.get("name").is<std::string>())
+				continue;
+			std::string devname = d.get("name").get<std::string>();
+			device_c *dev = nullptr;
+			{
+				std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+				for (device_c *cand : device_c::mydevices)
+					if (!device_is_infrastructure(cand)
+							&& strcasecmp(cand->name.value.c_str(), devname.c_str()) == 0) {
+						dev = cand;
+						break;
+					}
+			}
+			if (dev == nullptr) {
+				errors.push_back(picojson::value(devname + ": unknown device"));
+				continue;
+			}
+			// parameters the file omits are at their defaults too
+			std::set<std::string> listed;
+			if (d.get("params").is<picojson::object>())
+				for (const std::pair<const std::string, picojson::value> &kv :
+						d.get("params").get<picojson::object>())
+					listed.insert(kv.first);
+			reset_to_defaults(dev, &listed, &errors);
+
+			if (d.get("params").is<picojson::object>())
+				for (const std::pair<const std::string, picojson::value> &kv :
+						d.get("params").get<picojson::object>()) {
+					if (!kv.second.is<std::string>())
+						continue;
+					parameter_c *param = dev->param_by_name(kv.first);
+					if (param == nullptr || param->readonly)
+						continue;
+					if (*param->render() == kv.second.get<std::string>())
+						continue; // unchanged — don't disturb the device
+					try {
+						param->parse(kv.second.get<std::string>());
+					} catch (bad_parameter &e) {
+						errors.push_back(picojson::value(
+								devname + "." + kv.first + ": " + e.what()));
+					}
+				}
+			if (d.get("enabled").is<bool>())
+				dev->enabled.set(d.get("enabled").get<bool>());
+		}
+	}
+	printf("\nweb: configuration \"%s\" applied, %u rejections\n",
+			name.c_str(), (unsigned) errors.size());
+	picojson::object res;
+	res["ok"] = picojson::value(errors.empty());
+	res["errors"] = picojson::value(errors);
+	send_json(conn, 200, picojson::value(res));
+}
+
+// /api/configs, /api/configs/<name>, /api/configs/<name>/apply
+static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
+	const struct mg_request_info *ri = mg_get_request_info(conn);
+	std::string uri = ri->local_uri ? ri->local_uri : "";
+	std::string rest = uri.substr(strlen("/api/configs"));
+	std::string method = ri->request_method;
+
+	if (rest.empty() || rest == "/") {
+		if (method != "GET") {
+			send_error(conn, 405, "GET required");
+			return 405;
+		}
+		configs_list(conn);
+		return 200;
+	}
+
+	std::string name = rest.substr(1);
+	bool apply = false;
+	if (name.size() > 6 && name.compare(name.size() - 6, 6, "/apply") == 0) {
+		name = name.substr(0, name.size() - 6);
+		apply = true;
+	}
+	if (!valid_config_name(name)) {
+		send_error(conn, 404, "unknown configuration");
+		return 404;
+	}
+
+	if (apply && method == "POST")
+		config_apply(conn, name);
+	else if (!apply && method == "PUT")
+		config_save(conn, name);
+	else if (!apply && method == "GET") {
+		picojson::value content;
+		std::string err;
+		if (!read_config(name, &content, &err))
+			send_error(conn, 404, err);
+		else
+			send_json(conn, 200, content);
+	} else if (!apply && method == "DELETE") {
+		if (unlink(config_path(name).c_str()) != 0) {
+			send_error(conn, 404, "unknown configuration \"" + name + "\"");
+			return 404;
+		}
+		printf("\nweb: configuration \"%s\" deleted\n", name.c_str());
+		picojson::object res;
+		res["ok"] = picojson::value(true);
+		send_json(conn, 200, picojson::value(res));
+	} else {
+		send_error(conn, 405, "unsupported method");
+		return 405;
+	}
+	return 200;
+}
+
+void webconfigs_register(struct mg_context *ctx) {
+	const char *base = getenv("QUNIBONE_DIR");
+	if (base == nullptr)
+		base = getenv("HOME");
+	configs_dir = std::string(base ? base : ".") + "/configs";
+	mkdir(configs_dir.c_str(), 0755); // may already exist
+	capture_parameter_defaults();
+	mg_set_request_handler(ctx, "/api/configs", api_configs_handler, nullptr);
+}

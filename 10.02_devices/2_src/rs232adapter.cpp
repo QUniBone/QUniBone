@@ -66,6 +66,7 @@ rs232adapter_c::rs232adapter_c()
 	rs232 = NULL;
 	stream_rcv = NULL;
 	stream_xmt = NULL;
+	stream_xmt_tap = NULL;
 	rcv_termios_error_encoding = false;
 	rcvbuffer.clear();
 	pattern_stream_data[0] = 0;
@@ -164,6 +165,8 @@ void rs232adapter_c::rs232byte_xmt_send(rs232byte_t xmtbyte)
 		rs232->SendByte(xmtbyte.c);
 	if (stream_xmt)
 		stream_xmt->put(xmtbyte.c);
+	if (stream_xmt_tap)
+		stream_xmt_tap->put(xmtbyte.c);
 	// pattern ring buffer
 	unsigned n = strlen(pattern);
 	if (n) {

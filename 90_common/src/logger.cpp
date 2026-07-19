@@ -81,12 +81,89 @@ logger_c::logger_c()
     messagecount = 0;
     life_level = default_level;
     logsources.clear();
+    output_thread = std::thread(&logger_c::output_worker, this);
 //	pthread_mutex_destroy(&mutex);
 }
 
 logger_c::~logger_c()
 {
+    {
+        std::lock_guard<std::mutex> lock(output_mutex);
+        output_terminate = true;
+    }
+    output_cond.notify_one();
+    if (output_thread.joinable())
+        output_thread.join();
     fifo_init(0); // free buffer
+    if (file_sink) {
+        fclose(file_sink);
+        file_sink = nullptr;
+    }
+}
+
+// drain queued messages to console and file. Runs on its own thread so
+// blocking writes (a slow pty, storage flush) never stall a logging thread.
+void logger_c::output_worker(void)
+{
+    std::unique_lock<std::mutex> lock(output_mutex);
+    while (true) {
+        output_cond.wait(lock, [this] {
+            return !output_queue.empty() || output_terminate;
+        });
+        // take the whole batch under the lock, write without it: logging
+        // threads never wait behind the writer's I/O
+        std::deque<output_entry_c> batch;
+        batch.swap(output_queue);
+        unsigned dropped = output_dropped;
+        output_dropped = 0;
+        bool terminate = output_terminate;
+        lock.unlock();
+
+        if (dropped)
+            fprintf(stderr, "logger: %u messages dropped\n", dropped);
+        for (auto &entry : batch) {
+            if (entry.to_file && file_sink) {
+                fputs(entry.text.c_str(), file_sink);
+                fputc('\n', file_sink);
+            }
+            if (entry.to_console)
+                std::cout << entry.text << "\n";
+        }
+        if (file_sink)
+            fflush(file_sink);
+
+        lock.lock();
+        if (terminate && output_queue.empty())
+            return;
+    }
+}
+
+// wait until the writer has drained the queue (used before exit)
+void logger_c::output_flush(void)
+{
+    for (unsigned i = 0; i < 100; i++) {
+        {
+            std::lock_guard<std::mutex> lock(output_mutex);
+            if (output_queue.empty())
+                return;
+        }
+        usleep(10000);
+    }
+}
+
+// append every message passing a source's verbosity to a file, flushed per
+// line, so an external tail/grep sees a complete live trace
+void logger_c::set_file_sink(const char *path)
+{
+    if (file_sink) {
+        fclose(file_sink);
+        file_sink = nullptr;
+    }
+    if (path == nullptr)
+        return;
+    file_sink = fopen(path, "w");
+    if (file_sink == nullptr)
+        fprintf(stderr, "cannot open log file sink \"%s\"\n", path);
 }
 
 // register a source, set its id
@@ -364,12 +441,25 @@ void logger_c::vlog(logsource_c *logsource, unsigned msglevel, bool late_evaluat
 	msg.valid = true;
     fifo_push(&msg); // always into ring buffer
 
-    // print message immediately
-    if (msglevel <= life_level) {
+    if (message_sink || file_sink || msglevel <= life_level) {
         char msgtext[LOGMESSAGE_TEXT_SIZE];
         message_render(msgtext, sizeof(msgtext), &msg, RENDER_STYLE_CONSOLE);
-        std::cout << msgtext << "\n";
-        // cout << string(msgtext) << "\n"; // not thread safe???
+        if (message_sink)
+            message_sink(msglevel, logsource->log_label.c_str(), msgtext);
+        // console and file writes block on slow consumers (pty, storage):
+        // hand them to the writer thread, bounded so a stalled writer
+        // cannot exhaust memory
+        bool to_file = file_sink != nullptr;
+        bool to_console = msglevel <= life_level;
+        if (to_file || to_console) {
+            std::lock_guard<std::mutex> lock(output_mutex);
+            if (output_queue.size() >= 20000)
+                output_dropped++;
+            else
+                output_queue.push_back(
+                        output_entry_c { msgtext, to_file, to_console });
+            output_cond.notify_one();
+        }
     }
 
     m1--;
@@ -378,6 +468,7 @@ void logger_c::vlog(logsource_c *logsource, unsigned msglevel, bool late_evaluat
 
     // stop program
     if (msglevel == LL_FATAL) {
+        output_flush();
         exit(1);
     }
 }

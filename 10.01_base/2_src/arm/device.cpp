@@ -49,6 +49,7 @@
 
 // declare device list of class separate
 std::list<device_c *> device_c::mydevices;
+std::mutex device_c::mydevices_mutex;
 
 // argument is a device_c
 // called reentrant in parallel for all different devices
@@ -71,6 +72,17 @@ static void *device_worker_pthread_wrapper(void *context)
 	device_c *device = worker_instance->device;
 	int oldstate; // not used
 #define this device // make INFO work
+	// give the thread a descriptive comm name. Worker threads are created
+	// by whichever thread set the "enabled" parameter - often a web request
+	// handler - and would otherwise carry that creator's name (e.g. the
+	// embedded web server's "civetweb-worker"), which is misleading in
+	// ps/top and scheduler traces.
+	{
+		char thread_name[16];
+		snprintf(thread_name, sizeof(thread_name), "%.13s.%u",
+				device->name.value.c_str(), worker_instance->instance);
+		pthread_setname_np(pthread_self(), thread_name);
+	}
 	// call real worker
 	INFO("%s::worker(%u) started", device->name.value.c_str(), worker_instance->instance);
 	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldstate);
@@ -89,7 +101,10 @@ device_c::device_c()
 	// create work thread and run virtual "worker()" function in parallel
 
 	// add reference to device to class list
-	mydevices.push_back(this);
+	{
+		std::lock_guard<std::mutex> lock(mydevices_mutex);
+		mydevices.push_back(this);
+	}
 
 	parent = NULL;
 
@@ -126,6 +141,7 @@ device_c::~device_c()
 
 	// remove device from class list
 	// https://www.safaribooksonline.com/library/view/c-cookbook/0596007612/ch08s05.html
+	std::lock_guard<std::mutex> lock(mydevices_mutex);
 	std::list<device_c*>::iterator p = find(mydevices.begin(), mydevices.end(), this);
 	if (p != mydevices.end())
 		mydevices.erase(p);
@@ -245,10 +261,15 @@ void device_c::worker_init_realtime_priority(enum worker_priority_e priority)
 		worker_sched_priority = sched_get_priority_max(SCHED_FIFO);
 		break;
 	case rt_device:
-		// all device controllers and storage worker must run in parallel
-		// (SO RR instead of SCHED), but higher than every Linux stad thread.
+		// all device controllers and storage workers run in parallel
+		// (SCHED_RR, round-robin among themselves), above every other
+		// thread in the process. Priority 60 keeps them above the web
+		// server's threads, which the embedded civetweb runs at RR 50 -
+		// on the single-core BeagleBone a dashboard poll must never
+		// round-robin with the bus servicer or the device firmware's
+		// tight poll windows are missed.
 		worker_sched_policy = SCHED_RR;
-		worker_sched_priority = 50;
+		worker_sched_priority = 60;
 		break;
 	case none_rt:
 		// default Linux time-share scheduling

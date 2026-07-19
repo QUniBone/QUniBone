@@ -41,6 +41,8 @@ public:
 	// does not instantiate the drives
 	storagecontroller_c(void);
 	virtual ~storagecontroller_c(); // classes with virtual functions shoudl have virtual destructors
+
+	const char *category(void) const override { return "controller"; }
 	
 	virtual bool on_before_install(void) override ;
 	virtual void on_after_uninstall(void) override ;

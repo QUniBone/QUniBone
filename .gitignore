@@ -1,0 +1,7 @@
+# object/binary output of the demo application build
+10.03_app_demo/4_deploy_q/
+10.03_app_demo/4_deploy_u/
+# prussdrv headers, distributed by update-files.sh / fetched by crossbuild.sh
+91_3rd_party/am335x_pru_package/include/
+# c-kermit source + binary, fetched/built by 91_3rd_party/ckermit/build.sh
+91_3rd_party/ckermit/build/

@@ -66,6 +66,9 @@ public:
 	// the class holds a list of pointers to instantiated devices
 	// also needed to have a list of threads
 	static std::list<device_c *> mydevices;
+	// guards mydevices against traversal from other threads (web interface)
+	// while devices are constructed/destructed on the menu thread
+	static std::mutex mydevices_mutex;
 
 	device_c *parent; // example: storagedrive_c.parent is storage-controller
 
@@ -120,6 +123,23 @@ public:
 
 
 	virtual bool on_param_changed(parameter_c *param);
+
+	// device class for the web UI widget framework. One of:
+	// "serial", "disk", "tape", "network", "controller",
+	// "infrastructure", "other". Endpoint devices override this;
+	// controllers and drives report their role so the frontend can pick
+	// a widget without parsing the free-form type name.
+	virtual const char *category(void) const { return "other"; }
+
+	// Bring activity indicators up to date. I/O sets them in bursts far
+	// shorter than the interval at which they are sampled, so a device holds
+	// one lit for a visible span and drops it here once that span has passed.
+	// Called periodically by whoever samples the parameters.
+	virtual void refresh_activity(void) { }
+
+	// How long an activity lamp stays lit after the burst that set it. Longer
+	// than the sampling interval, so no burst goes unreported.
+	static const unsigned activity_lamp_on_time_ms = 150 ;
 
 	// search in mydevices
 	static device_c *find_by_name(char *name);

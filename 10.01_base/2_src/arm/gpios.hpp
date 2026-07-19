@@ -47,6 +47,7 @@ private:
     unsigned cycle_time_ms = 50 ; // polling intervall and granularity
     unsigned minimal_on_time_ms = 100 ; // default: 100ms ON on every pulse
     volatile unsigned cycles[led_count] ; // LED on if > 0. acessed in thread
+    volatile bool seen[led_count] ; // pulse since the last take_activity()
 
     bool waiter_terminated = false;
     void waiter_func() ;
@@ -58,6 +59,12 @@ public:
     bool enabled = false ;
     // set concurrently to thread
     void set(unsigned led_idx, bool onoff) ;
+
+    // True if the LED pulsed at any point since the previous call, and clears
+    // that record.  A pulse lasts minimal_on_time_ms, so a sampler running at
+    // a comparable period would otherwise read the pin between two pulses and
+    // report a busy device as idle.
+    bool take_activity(unsigned led_idx) ;
 } ;
 
 
@@ -154,8 +161,9 @@ public:
     unsigned cmdline_leds ; // as set on call to application via cmdline options
     bool leds_for_debug = false ;
 
-    // global LED for all drive accesses
-    activity_led_c	drive_activity_led ; // singleton
+    // shared activity LEDs, claimed by index: drives use their unit number,
+    // other devices the "activityled" parameter
+    activity_led_c	activity_leds ; // singleton
 
     void init(void);
     void set_frequency(unsigned frequency);

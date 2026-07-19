@@ -84,7 +84,11 @@ public:
 
 	std::ostream *stream_xmt; // users sets this to a stream in which
 	// chars are written to be transferred.
-	// may be "cout", or an stringstream 
+	// may be "cout", or an stringstream
+
+	std::ostream *stream_xmt_tap; // permanent second xmt sink: every
+	// transmitted byte is copied here as well (web console tap), while
+	// stream_xmt remains free for the menu's temporary echo/pattern use
 
 	/*** PATTERN detection ***/
 	void set_pattern(char *pattern);

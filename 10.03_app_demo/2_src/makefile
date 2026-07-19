@@ -5,5 +5,5 @@ ifeq ($(QUNIBONE_PLATFORM),UNIBUS)
 else ifeq  ($(QUNIBONE_PLATFORM),QBUS)
         include makefile_q
 else
-	$(error Set QUNIBONE_PLATFORM to UNIBUS or QBUS!)
+        $(error Set QUNIBONE_PLATFORM to UNIBUS or QBUS!)
 endif

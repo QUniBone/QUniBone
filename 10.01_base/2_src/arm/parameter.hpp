@@ -71,6 +71,11 @@ class parameterized_c;
 class parameter_c {
 private:
 public:
+	// global observer, called after a value change is committed.
+	// Consumers (web interface event stream) must be fast and lock-free;
+	// NULL when inactive.
+	static void (*change_hook)(parameter_c *param);
+
 	parameterized_c *parameterized; // link to parent object
 	std::string name;
 	std::string shortname;

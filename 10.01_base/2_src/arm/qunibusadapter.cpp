@@ -1034,7 +1034,16 @@ void qunibusadapter_c::worker_device_dma_chunk_complete_event()
 
     dma_request_c *dmareq = dynamic_cast<dma_request_c *>(prl->active);
 
-    assert(dmareq != NULL);
+    // A bus INIT or power event (worker_init_event/worker_power_event ->
+    // requests_cancel_scheduled) can clear prl->active and force-complete the
+    // device's DMA before the PRU's completion signal for that transfer is
+    // dispatched. The PRU signal persists until acked, so it still arrives here
+    // with no active request — e.g. a RESET during the DELQA MOP boot load.
+    // The waiting device was already released with success=false; tolerate the
+    // stale completion, as request_active_complete() and
+    // worker_intr_complete_event() already do. The caller acks the event.
+    if (dmareq == NULL)
+        return;
     // fix PRU data struct: remove IOPAGE bit from mailbox struct, was set im mailbox_execute()
     mailbox->dma.startaddr &= ~QUNIBUS_IOPAGE_ADDR_BITMASK ;
     mailbox->dma.cur_addr &= ~QUNIBUS_IOPAGE_ADDR_BITMASK ;

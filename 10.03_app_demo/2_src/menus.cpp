@@ -34,6 +34,10 @@
 #include "stringgrid.hpp"
 
 #include "qunibus.h"
+
+// device_configuration.hpp pulls all device headers; menu_main only checks existence
+class device_configuration_c;
+extern device_configuration_c *device_configuration;
 #include "ddrmem.h"
 
 #include "application.hpp" // own
@@ -275,12 +279,22 @@ void application_c::menu_main(void)
         s_choice = getchoice("");
 
         n_fields = sscanf(s_choice, "%s %d", opcode, &numarg);
+        // the hardware test menus reload PRU code and would break the
+        // long-lived device set of the web interface
+        bool devices_active = (device_configuration != nullptr);
         if (n_fields > 0) {
             // gpios->set_leds(gpios->cmdline_leds) ; // signal user: operation started
             if (!strcasecmp(opcode, "q")) {
                 ready = true;
                 // } else if (!strcasecmp(opcode, "a")) {
                 //	qunibus->arbitrator_client = !!numarg;
+            } else if (devices_active && (!strcasecmp(opcode, "tg") || !strcasecmp(opcode, "tp")
+                    || !strcasecmp(opcode, "tl") || !strcasecmp(opcode, "bs")
+                    || !strcasecmp(opcode, "tm") || !strcasecmp(opcode, "ts")
+                    || !strcasecmp(opcode, "ti") || !strcasecmp(opcode, "de")
+                    || !strcasecmp(opcode, "m") || !strcasecmp(opcode, "dc"))) {
+                printf("Not available: emulated devices are active (web interface).\n");
+                printf("Use \"d\" to operate them, \"q\" to exit.\n");
             } else if (!strcasecmp(opcode, "tg")) {
                 menu_gpio("TG");
             } else if (!strcasecmp(opcode, "tp")) {

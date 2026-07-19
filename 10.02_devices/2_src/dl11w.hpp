@@ -100,6 +100,8 @@ private:
 public:
 	rs232adapter_c rs232adapter; /// stream router
 
+	const char *category(void) const override { return "serial"; }
+
 private:
 	qunibusdevice_register_t *reg_rcsr;
 	qunibusdevice_register_t *reg_rbuf;

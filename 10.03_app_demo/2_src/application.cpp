@@ -54,6 +54,9 @@
 
 #include "logsource.hpp"
 #include "logger.hpp"
+#if defined(WEBUI)
+#include "webserver.hpp"
+#endif
 #include "timeout.hpp"
 #include "getopt2.hpp"
 #include "kbhit.h"
@@ -183,6 +186,12 @@ void application_c::parse_commandline(int argc, char **argv)
                          "<decimal number>: Display number 0..15 on 4 binary LEDs.\n"
                          "\"debug\": LEDs not used, free for internal debugging.", "",
                          "", "", "");
+#if defined(WEBUI)
+    getopt_parser.define("web", "web", "", "port", "",
+                         "Start the web interface.\n"
+                         "Serves the frontend from ~/10.05_web/3_frontend on <port> (default 80).", "",
+                         "", "8080", "web interface on port 8080");
+#endif
 
 	// test options
 
@@ -230,6 +239,17 @@ void application_c::parse_commandline(int argc, char **argv)
                     commandline_option_error((char *)"4 LEDs can only display values 0..15");
                 gpios->cmdline_leds = n ;
             }
+#if defined(WEBUI)
+        } else if (getopt_parser.isoption("web")) {
+            unsigned n;
+            int argres = getopt_parser.arg_u("port", &n);
+            if (argres == GETOPT_STATUS_OK)
+                opt_web_port = n;
+            else if (argres < 0)
+                commandline_option_error(NULL);
+            else
+                opt_web_port = 80;
+#endif
         } else if (getopt_parser.isoption("test")) {
             int i1, i2;
             std::string s;
@@ -302,9 +322,43 @@ int application_c::run(int argc, char *argv[])
     parse_commandline(argc, argv);
 
     logger->reset_log_levels(); // logger.default_level maybe info or debug
-    logger->life_level = LL_INFO; // show message up to this level immediately on console
-    //logger->life_level = LL_DEBUG; // show message up to this level immediately on console
+    // Print to the console whatever passes each source's own verbosity, so a
+    // device raised to DEBUG shows its trace on the console as well as the web
+    // log. Sources at their default level still suppress DEBUG, so this does
+    // not flood normal operation.
+    logger->life_level = LL_DEBUG;
+    // QUNIBONE_LOG=<path> additionally appends every message to a file,
+    // flushed per line - reliable capture for tail/grep
+    if (getenv("QUNIBONE_LOG"))
+        logger->set_file_sink(getenv("QUNIBONE_LOG"));
     logger->default_filepath = "qunibone.log.csv";
+
+    // the device workers run SCHED_RR and saturate the CPU during
+    // register-poll-heavy phases; the kernel's RT throttling would then
+    // suspend the whole RT class for 50ms of every second, long enough to
+    // miss device-firmware poll windows (the DELQA self-test allows ~33ms
+    // per reflected frame)
+    {
+        FILE *f = fopen("/proc/sys/kernel/sched_rt_runtime_us", "w");
+        if (f) {
+            fputs("-1\n", f);
+            fclose(f);
+        } else
+            WARNING("cannot disable RT throttling (sched_rt_runtime_us)");
+    }
+
+    // pin the CPU at its top frequency: the ondemand governor idles the
+    // single core down to 300-720MHz between poll bursts and ramps only
+    // after several sample periods, adding scheduling latency in exactly
+    // the phases where device firmware polls with a tight timeout
+    {
+        FILE *f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "w");
+        if (f) {
+            fputs("performance\n", f);
+            fclose(f);
+        } else
+            WARNING("cannot pin CPU governor to performance");
+    }
 
     // Test messages: visible if -verbose, -debug set.
     INFO("Printing verbose output.");
@@ -337,7 +391,28 @@ int application_c::run(int argc, char *argv[])
     GPIO_SETVAL(gpios->reg_enable, 1);
     // input registers can now be read
 
+#if defined(WEBUI)
+    if (opt_web_port) {
+        // installation root: QUNIBONE_DIR (see compile-bbb.env), fallback $HOME
+        const char *root = getenv("QUNIBONE_DIR");
+        if (root == nullptr)
+            root = getenv("HOME");
+        std::string docroot = std::string(root ? root : ".") + "/10.05_web/3_frontend";
+        // device set lives for the process lifetime, menus only borrow it
+        devices_startup(/*with_emulated_CPU*/false);
+        webserver = new webserver_c(opt_web_port, docroot);
+        webserver->start();
+    }
+#endif
+
     menu_main();
+
+#if defined(WEBUI)
+    if (opt_web_port) {
+        webserver->stop();
+        devices_shutdown();
+    }
+#endif
 
 //	hardware_shutdown();
 

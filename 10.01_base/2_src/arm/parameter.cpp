@@ -33,6 +33,8 @@
 #include "device.hpp"
 #define _PARAMETER_CPP_
 
+void (*parameter_c::change_hook)(parameter_c *param) = NULL;
+
 parameter_c::parameter_c(parameterized_c *_parameterized, std::string _name, std::string _shortname,
 bool _readonly, std::string _unit, std::string _format, std::string _info) 
 {
@@ -85,8 +87,11 @@ void parameter_string_c::set(std::string _new_value)
 		return; // call "on_change" only on change
 	new_value = _new_value;
 	// reject parsed value, if device parameter check complains
-	if (parameterized == NULL || parameterized->on_param_changed(this))
+	if (parameterized == NULL || parameterized->on_param_changed(this)) {
 		value = new_value; // device may have changed "new_value"
+		if (change_hook)
+			change_hook(this);
+	}
 }
 
 // string parsing is just copying
@@ -118,8 +123,11 @@ void parameter_bool_c::set(bool _new_value)
 
 	// reject parsed value, if device parameter check complains
 	new_value = _new_value;
-	if (parameterized == NULL || parameterized->on_param_changed(this))
+	if (parameterized == NULL || parameterized->on_param_changed(this)) {
 		value = new_value;
+		if (change_hook)
+			change_hook(this);
+	}
 }
 
 // bool accepts 0/1, y*/n*, t*/f*
@@ -168,8 +176,11 @@ void parameter_unsigned_c::set(unsigned _new_value)
 
 	new_value = _new_value;
 	// reject parsed value, if device parameter check complains
-	if (parameterized == NULL || parameterized->on_param_changed(this))
+	if (parameterized == NULL || parameterized->on_param_changed(this)) {
 		value = new_value;
+		if (change_hook)
+			change_hook(this);
+	}
 }
 
 void parameter_unsigned_c::parse(std::string text) 
@@ -212,8 +223,11 @@ void parameter_unsigned64_c::set(uint64_t _new_value)
 
 	new_value = _new_value;
 	// reject parsed value, if device parameter check complains
-	if (parameterized == NULL || parameterized->on_param_changed(this))
+	if (parameterized == NULL || parameterized->on_param_changed(this)) {
 		value = new_value;
+		if (change_hook)
+			change_hook(this);
+	}
 }
 
 void parameter_unsigned64_c::parse(std::string text) 
@@ -270,8 +284,11 @@ void parameter_double_c::set(double _new_value)
 
 	new_value = _new_value;
 	// reject parsed value, if device parameter check complains
-	if (parameterized == NULL || parameterized->on_param_changed(this))
+	if (parameterized == NULL || parameterized->on_param_changed(this)) {
 		value = new_value;
+		if (change_hook)
+			change_hook(this);
+	}
 }
 
 // add reference to parameter. It will be automatically deleted

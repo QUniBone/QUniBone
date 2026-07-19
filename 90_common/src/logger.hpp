@@ -42,8 +42,11 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <deque>
 #include <iostream>
 #include <mutex>
+#include <thread>
+#include <condition_variable>
 #include <stdarg.h>
 
 #include "logsource.hpp"
@@ -129,6 +132,23 @@ private:
 
 	void message_render(char *buffer, unsigned buffer_size, logmessage_t *msg, unsigned style);
 
+	// asynchronous output: console and file writes block (pty, storage),
+	// so rendered messages are queued here and written by a dedicated
+	// thread. Device emulation threads only pay for rendering.
+	struct output_entry_c {
+		std::string text;
+		bool to_file;
+		bool to_console;
+	};
+	std::deque<output_entry_c> output_queue;
+	std::mutex output_mutex;
+	std::condition_variable output_cond;
+	std::thread output_thread;
+	bool output_terminate = false;
+	unsigned output_dropped = 0;
+	void output_worker(void);
+	void output_flush(void);
+
 public:
 	// where to log
 	// global last raised error
@@ -143,6 +163,16 @@ public:
 	unsigned default_level = LL_WARNING;
 	std::string default_filepath; // caller may save a file name here
 	void reset_log_levels(void);
+
+	// observer for rendered messages (web interface event stream).
+	// Called under the fifo mutex — must not log and must not block.
+	// NULL when inactive.
+	void (*message_sink)(unsigned msglevel, const char *label, const char *text) = nullptr;
+
+	// continuous file sink: every message that passes a source's verbosity is
+	// appended (flushed per line). Enabled with set_file_sink().
+	FILE *file_sink = nullptr;
+	void set_file_sink(const char *path);
 
 	// show messages up to this level immediately on console
 	unsigned life_level;

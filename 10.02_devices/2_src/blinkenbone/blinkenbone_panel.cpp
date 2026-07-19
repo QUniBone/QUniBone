@@ -207,7 +207,7 @@ void blinkenbone_panel_c::connect(std::string _hostname, unsigned _panel_addr) {
 
 
 void blinkenbone_panel_c::disconnect() {
-    assert(connected()) ;
+    // safe in any state: uninstall also happens after a failed connect
     control_register_sets.clear() ;
     panel = nullptr ; // re-select on next connect()
 

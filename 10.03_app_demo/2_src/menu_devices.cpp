@@ -65,6 +65,7 @@
 #include "m9312.hpp"
 #endif
 #include "cpu.hpp"
+#include "device_configuration.hpp"
 
 /*** handle loading of memory content  from macro-11 listing ***/
 static char memory_filename[PATH_MAX + 1];
@@ -128,28 +129,15 @@ static void print_device(device_c *device)
                device->type_name.value.c_str());
 }
 
-void application_c::menu_devices(const char *menu_code, bool with_emulated_CPU)
+// bring up PRU emulation code and the device set; also used at startup in web mode
+void application_c::devices_startup(bool with_emulated_CPU)
 {
-    /** list of usable devices ***/
-    bool with_storage_file_test = false;
-
-    bool ready = false;
-    bool show_help = true ;
-    bool memory_emulated = false;
-    device_c *cur_device = NULL;
-    qunibusdevice_c *unibuscontroller = NULL;
-    unsigned n_fields;
-    char *s_choice;
-    char s_opcode[256], s_param[3][256];
-
-    strcpy(memory_filename, "");
-
 //	iopageregisters_init();
     // QBUS/UNIBUS activity
     // assert(qunibus->arbitrator_client) ; // External Bus Arbitrator required
     hardware_startup(pru_c::PRUCODE_EMULATION);
     // now PRU executing QBUS/UNIBUS master/slave code, physical PDP-11 CPU as arbitrator required.
-    gpios->drive_activity_led.enabled = !gpios->leds_for_debug ;
+    gpios->activity_leds.enabled = !gpios->leds_for_debug ;
     buslatches.output_enable(true);
 
     // devices need physical or emulated CPU Arbitrator
@@ -166,86 +154,46 @@ void application_c::menu_devices(const char *menu_code, bool with_emulated_CPU)
 
     qunibusadapter->enabled.set(true);
 
-    // memory mapped blinkenbone panels
-    blinkenbone_c *blinkenbone = new blinkenbone_c();
+    device_configuration = new device_configuration_c(with_emulated_CPU);
+}
 
-    // 2 demo controller
-    cur_device = NULL;
-    demo_io_c *demo_io = new demo_io_c();
+void application_c::devices_shutdown(void)
+{
+    delete device_configuration;
+    device_configuration = nullptr;
 
+    gpios->activity_leds.enabled = false ;
 
-    // uses all slot resource, can onyl run alone
-    //testcontroller_c *test_controller = new testcontroller_c();
+    qunibusadapter->enabled.set(false);
 
-#if defined(UNIBUS)
-    cpu_c *cpu = NULL;
-#endif
-    // create RF11 + RS11 drive
-    rf11_c *RF11 = new rf11_c();
+    buslatches.output_enable(false);
+    hardware_shutdown(); // stop PRU
+}
 
-    // create RL11 +  also 4 RL01/02 drives
-#if defined(UNIBUS)
-    RL11_c *RL11 = new RL11_c();
-#elif defined(QBUS)
-    RLV12_c *RL11 = new RLV12_c();
-#endif
-    paneldriver->reset(); // reset I2C, restart worker()
-    // create RK11 + drives
-#if defined(UNIBUS)
-    rk11_c *RK11 = new rk11_c();
-#elif defined(QBUS)
-    rkv11_c *RK11 = new rkv11_c();
-#endif
+void application_c::menu_devices(const char *menu_code, bool with_emulated_CPU)
+{
+    /** list of usable devices ***/
+    bool with_storage_file_test = false;
 
-    // Create UDA50
-    uda_c *UDA50 = new uda_c();
-    // Create 2 SLUs + LTC
-    slu_c *DL11 = new slu_c();
-    slu_c *DL11b = new slu_c();
-    // 2nd UART different parameters, default for TU58 interface
-    // !!! disable Linux usage, agetty !!!
-    DL11b->name.value = "DL11b";
-    log_label = "slub";
-    DL11b->priority_slot.value = DL11->priority_slot.value +1 ; // next to 1st uart
-    DL11b->base_addr.value = 0176500 ; //  AK6DN boot loader listing
-    DL11b->intr_vector.value = 0300 ;  // PDP-11/44 doc
-    DL11b->intr_level.value = 4 ; // PDP-11/44 doc
-    DL11b->serialport.value = "ttyS1" ; // well, cross-over 2nd UART == UART1 on board
-    DL11b->baudrate.value = 38400 ;
-    DL11b->mode.value = "8N1";
-    DL11b->error_bits_enable.value = false ; // M7856 SW4-7 ?
-    DL11b->break_enable.value = true ; // TU58 needs BREAK
+    bool ready = false;
+    bool show_help = true ;
+    bool memory_emulated = false;
+    device_c *cur_device = NULL;
+    qunibusdevice_c *unibuscontroller = NULL;
+    unsigned n_fields;
+    char *s_choice;
+    char s_opcode[256], s_param[3][256];
 
-    // to inject characters into DL11 receiver
-    // only 1st SLU, use this for console
-    std::stringstream dl11_rcv_stream(std::ios::app | std::ios::in | std::ios::out);
-    DL11->rs232adapter.stream_rcv = &dl11_rcv_stream;
-    DL11->rs232adapter.stream_xmt = NULL; // do not echo output to stdout
-    DL11->rs232adapter.baudrate = DL11->baudrate.value; // limit speed of injected chars
+    strcpy(memory_filename, "");
 
-    ltc_c *LTC = new ltc_c();
+    // the device set may already exist (web mode creates it at startup);
+    // then the menu only borrows it and quitting keeps it alive
+    bool borrowed_configuration = (device_configuration != nullptr);
+    if (!borrowed_configuration)
+        devices_startup(with_emulated_CPU);
 
-#if defined(UNIBUS)
-    RX11_c *RX11 = new RX11_c() ;
-    RX211_c *RX211 = new RX211_c() ;
-#elif defined(QBUS)
-    RXV11_c *RX11 = new RXV11_c() ;
-    RXV21_c *RX211 = new RXV21_c() ;
-#endif
-    //	//demo_regs.install();
-    //	//demo_regs.worker_start();
-
-
-
-#if defined(UNIBUS)
-    m9312_c *m9312 = new m9312_c();
-    ke11_c *KE11A = new ke11_c();
-
-    if (with_emulated_CPU) {
-        cpu = new cpu_c();
-        cpu->enabled.set(true);
-    }
-#endif
+    slu_c *DL11 = device_configuration->DL11;
+    std::stringstream& dl11_rcv_stream = device_configuration->dl11_rcv_stream;
 
     if (with_storage_file_test) {
         const char *testfname = "/tmp/storagedrive_selftest.bin";
@@ -335,6 +283,8 @@ void application_c::menu_devices(const char *menu_code, bool with_emulated_CPU)
 
         printf("\n");
         try {
+            // serialize against web API threads operating on the devices
+            std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
             n_fields = sscanf(s_choice, "%s %s %s %s", s_opcode, s_param[0], s_param[1],
                               s_param[2]);
             if (!strcasecmp(s_opcode, "q")) {
@@ -647,57 +597,9 @@ void application_c::menu_devices(const char *menu_code, bool with_emulated_CPU)
         }
     } // ready
 
-#if defined(UNIBUS)
-    if (with_emulated_CPU) {
-        cpu->enabled.set(false);
-        delete cpu;
-    }
-    m9312->enabled.set(false) ;
-    delete m9312 ;
-    KE11A->enabled.set(false);
-    delete KE11A;
-
-#endif
-
-    RX11->enabled.set(false) ;
-    delete RX11;
-
-    RX211->enabled.set(false) ;
-    delete RX211;
-
-    LTC->enabled.set(false);
-    delete LTC;
-    DL11b->enabled.set(false);
-    delete DL11b;
-    DL11->enabled.set(false);
-    delete DL11;
-
-    RF11->enabled.set(false);
-    delete RF11;
-
-    RL11->enabled.set(false);
-    delete RL11;
-
-    RK11->enabled.set(false);
-    delete RK11;
-
-    UDA50->enabled.set(false);
-    delete UDA50;
-
-    //test_controller->enabled.set(false);
-    //delete test_controller;
-
-    demo_io->enabled.set(false);
-    delete demo_io;
-
-    blinkenbone->enabled.set(false);
-    delete blinkenbone;
-
-    gpios->drive_activity_led.enabled = false ;
-
-    qunibusadapter->enabled.set(false);
-
-    buslatches.output_enable(false);
-    hardware_shutdown(); // stop PRU
+    if (!borrowed_configuration)
+        devices_shutdown();
+    else
+        printf("Devices stay active (owned by the web interface).\n");
 }
 

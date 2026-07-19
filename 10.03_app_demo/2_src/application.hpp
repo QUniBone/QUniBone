@@ -62,6 +62,9 @@ public:
 	// command line args
 	unsigned opt_linewidth = 80;
 	std::string opt_cmdfilename;
+#if defined(WEBUI)
+	unsigned opt_web_port = 0; // 0 = web interface not requested
+#endif
 	getopt_c getopt_parser;
 	void help(void);
 	void commandline_error(void);
@@ -71,6 +74,11 @@ public:
 	void hardware_startup(enum pru_c::prucode_enum prucode_id);
 
 	void hardware_shutdown(void);
+
+	// bring up PRU emulation code and the device set (device_configuration),
+	// as the devices menu does on entry; used at startup in web mode
+	void devices_startup(bool with_emulated_CPU);
+	void devices_shutdown(void);
 
 	// QUniBone should emulate this address range
 	uint32_t emulated_memory_start_addr; // even

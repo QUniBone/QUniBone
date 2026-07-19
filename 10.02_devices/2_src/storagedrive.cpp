@@ -36,7 +36,7 @@
 #include <ios>
 
 #include "logger.hpp"
-#include "gpios.hpp" // drive_activity_led
+#include "gpios.hpp" // activity_leds
 
 #include "sharedfilesystem/filesystem_base.hpp"
 #include "sharedfilesystem/storageimage_shared.hpp"
@@ -245,10 +245,23 @@ void storagedrive_c::image_clear_remaining_block_bytes(unsigned block_size_bytes
 
 void storagedrive_c::set_activity_led(bool onoff) 
 {
+    if (onoff) {
+        // A transfer is over in microseconds; hold the lamp long enough for
+        // the next sample to catch it. Independent of the GPIO below, so a
+        // drive without a LED of its own still shows activity in the UI.
+        access_lamp_until_ms = now_ms() + activity_lamp_on_time_ms ;
+        access_lamp.value = true ;
+    }
     // only 4 leds: if larger number, then supress display
     if (activity_led.value >= 4)
         return ;
-    gpios->drive_activity_led.set(activity_led.value, onoff) ;
+    gpios->activity_leds.set(activity_led.value, onoff) ;
+}
+
+void storagedrive_c::refresh_activity(void)
+{
+    if (access_lamp.value && now_ms() >= access_lamp_until_ms)
+        access_lamp.value = false ;
 }
 
 

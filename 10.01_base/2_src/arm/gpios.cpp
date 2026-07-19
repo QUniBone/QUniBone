@@ -382,8 +382,10 @@ void activity_led_c::waiter_func()
 activity_led_c::activity_led_c()
 {
     waiter_terminated = false ;
-    for (unsigned led_idx=0 ; led_idx < led_count ; led_idx++)
+    for (unsigned led_idx=0 ; led_idx < led_count ; led_idx++) {
         cycles[led_idx] = 1 ; // will go off when thread waiter_func() starts
+        seen[led_idx] = false ;
+    }
     enabled = false ;
     minimal_on_time_ms = 100 ;
 }
@@ -402,11 +404,22 @@ void activity_led_c::set(unsigned led_idx, bool onoff)
     const std::lock_guard<std::mutex> lock(m); // cycles[]
     assert(led_idx < led_count) ;
     // atomic commands
-    if (onoff)
+    if (onoff) {
         // ON: load counter. "+1": pre-decrement in thread
         cycles[led_idx] = (minimal_on_time_ms / cycle_time_ms) + 1 ;
+        seen[led_idx] = true ;
+    }
 //    else
 //        cycles[led_idx] = 0 ; // still active until counted down
+}
+
+bool activity_led_c::take_activity(unsigned led_idx)
+{
+    const std::lock_guard<std::mutex> lock(m); // cycles[], seen[]
+    assert(led_idx < led_count) ;
+    bool active = seen[led_idx] || cycles[led_idx] ;
+    seen[led_idx] = false ;
+    return active ;
 }
 
 
