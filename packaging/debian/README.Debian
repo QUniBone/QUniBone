@@ -1,0 +1,109 @@
+qbone on Debian
+===============
+
+Run qbone-setup and you are done:
+
+    sudo qbone-setup
+
+It settles the boot configuration, checks that the PRUs and the cape are
+there, bridges the uplink so the emulated machine can reach the network,
+tells the emulated Ethernet controller which interface to bind to, and
+starts the services. It prints the address to point a browser at.
+
+Running it again is harmless. If a bridge already carries the uplink it is
+kept as it is, rather than rebuilt.
+
+On a kernel newer than 4.19 the first run usually changes /boot/uEnv.txt and
+stops there, because those settings only take effect at boot:
+
+    sudo qbone-setup      # applies boot settings, asks for a reboot
+    sudo reboot
+    sudo qbone-setup      # finishes
+
+The original file is kept as /boot/uEnv.txt.qbone-orig.
+
+Boot settings
+-------------
+
+bone_capemgr was removed in 4.19, so the cape overlay no longer loads from
+the cape's own EEPROM and U-Boot applies it instead. qbone-setup names
+QBone.dtbo in a free overlay slot, and turns off three overlays that would
+otherwise claim the cape's pins first - the eMMC's, HDMI's and the audio
+codec's. It also comments out uboot_overlay_pru: that overlay names a
+PRU-ICSS compatible no driver has bound since 6.10, so applying it takes the
+PRUs away rather than providing them.
+
+Beyond the cape's pins, QBone.dtbo declares the memory the emulated machine
+runs in and the interrupt the PRUs raise. uio_pdrv_genirq binds to the
+latter only when told which compatible to look for, which
+/etc/modprobe.d/qbone.conf does.
+
+If qbone-setup reports a missing piece it names which one, and each maps to
+one of these settings.
+
+Bridging the uplink moves this board's address onto the bridge, which is
+the one step that could put a headless board out of reach. qbone-setup arms
+a rollback before it makes the change and only cancels it once the gateway
+answers through the new bridge; a board that goes silent restores its old
+configuration by itself within ninety seconds.
+
+Both the change and the rollback run detached, so losing the session that
+started them does not interrupt either. The address is preserved across the
+change, so an ssh session usually survives it; if it does not, reconnect and
+read /run/qbone-setup.status.
+
+A wireless uplink is refused: a station may not forward frames carrying an
+address the access point never saw, so the emulated machine cannot be
+reached over one.
+
+To skip the network entirely:
+
+    sudo qbone-setup --no-bridge
+
+The emulated machine can then reach this board, which is enough for a local
+mopd, but not the rest of the network.
+
+What it sets up
+---------------
+
+The controller binds a raw socket to its own interface, because one on the
+uplink cannot reach the BeagleBone itself. That interface is a veth pair,
+created from /etc/qbone/network.conf before the emulator starts, with its
+far end on the bridge.
+
+The bridge stanza is written to /etc/network/interfaces.d/qbone, with the
+uplink's own address pinned so the DHCP lease does not change. A worked
+example is in /usr/share/doc/qbone/examples/interfaces-bridge for anyone
+configuring it by hand.
+
+Running
+-------
+
+qbone-setup starts and enables the services. Afterwards they behave as any
+others:
+
+    systemctl status qbone
+    systemctl restart qbone
+
+The web interface answers on port 80. State - disk images, saved
+configurations and settings.json - lives in /var/lib/qbone. The commands the
+emulator runs at startup are in /etc/qbone/startup.cmd.
+
+Admin password
+--------------
+
+A board that has no password answers every request, which is what makes a
+freshly installed one reachable. Open the interface and it asks for a
+password before anything else; from then on the browser asks for it on every
+visit, and any user name is accepted. It is stored in settings.json as a
+PBKDF2-HMAC-SHA256 digest, so that file becomes readable only by root.
+
+Open the interface promptly after installing. Until a password is set, anyone
+who can reach port 80 can operate the machine.
+
+Setting WEBUI_PASSWORD in the service's environment overrides all of this:
+the password is then whatever the variable says and the interface will not
+change it.
+
+The service runs as root: the PRU driver maps physical memory and the bus
+engine needs realtime scheduling priority.

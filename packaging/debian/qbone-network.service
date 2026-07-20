@@ -1,0 +1,14 @@
+[Unit]
+Description=Network interface for the emulated Ethernet controller
+Documentation=file:/usr/share/doc/qbone/README.Debian
+After=network.target
+Before=qbone.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/qbone-network start
+ExecStop=/usr/sbin/qbone-network stop
+
+[Install]
+WantedBy=multi-user.target

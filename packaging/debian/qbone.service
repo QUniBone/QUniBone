@@ -1,0 +1,22 @@
+[Unit]
+Description=PDP-11 Qbus device emulator
+Documentation=file:/usr/share/doc/qbone/README.Debian
+After=network.target qbone-network.service
+Requires=qbone-network.service
+
+[Service]
+Type=simple
+Environment=QUNIBONE_DIR=/var/lib/qbone
+WorkingDirectory=/var/lib/qbone
+ExecStart=/usr/bin/qbone --web 80 --webroot /usr/share/qbone/frontend \
+    --addresswidth 22 --cmdfile /etc/qbone/startup.cmd
+# The bus engine runs at realtime priority and the PRU driver wants physical
+# memory, so this stays privileged.
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

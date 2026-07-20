@@ -1,0 +1,17 @@
+qbone (1.6.0-1) trixie; urgency=low
+
+  * Build on Debian 13 with the remoteproc PRU backend.
+  * Enable the services on installation, so an installed package is a
+    running emulator.
+  * Declare the network tools qbone-network and qbone-setup call.
+  * Ask for an admin password on first use of the web interface and keep it
+    in the settings file.
+
+ -- Hans Huebner <hans.huebner@gmail.com>  Mon, 20 Jul 2026 11:00:00 +0200
+
+qbone (1.5.0-1) jessie; urgency=low
+
+  * Package the demo application as "qbone", with the web frontend, a
+    systemd unit and a state directory under /var/lib/qbone.
+
+ -- Hans Huebner <hans.huebner@gmail.com>  Sun, 19 Jul 2026 20:00:00 +0200

@@ -191,6 +191,11 @@ void application_c::parse_commandline(int argc, char **argv)
                          "Start the web interface.\n"
                          "Serves the frontend from ~/10.05_web/3_frontend on <port> (default 80).", "",
                          "", "8080", "web interface on port 8080");
+    getopt_parser.define("webroot", "webroot", "directory", "", "",
+                         "Serve the web frontend from <directory>.\n"
+                         "Default is 10.05_web/3_frontend under QUNIBONE_DIR, which is the\n"
+                         "source tree layout; an installed frontend lives somewhere else.", "",
+                         "", "/usr/share/qbone/frontend", "installed frontend");
 #endif
 
 	// test options
@@ -249,6 +254,9 @@ void application_c::parse_commandline(int argc, char **argv)
                 commandline_option_error(NULL);
             else
                 opt_web_port = 80;
+        } else if (getopt_parser.isoption("webroot")) {
+            if (getopt_parser.arg_s("directory", opt_web_root) != GETOPT_STATUS_OK)
+                commandline_option_error(NULL);
 #endif
         } else if (getopt_parser.isoption("test")) {
             int i1, i2;
@@ -394,10 +402,13 @@ int application_c::run(int argc, char *argv[])
 #if defined(WEBUI)
     if (opt_web_port) {
         // installation root: QUNIBONE_DIR (see compile-bbb.env), fallback $HOME
-        const char *root = getenv("QUNIBONE_DIR");
-        if (root == nullptr)
-            root = getenv("HOME");
-        std::string docroot = std::string(root ? root : ".") + "/10.05_web/3_frontend";
+        std::string docroot = opt_web_root;
+        if (docroot.empty()) {
+            const char *root = getenv("QUNIBONE_DIR");
+            if (root == nullptr)
+                root = getenv("HOME");
+            docroot = std::string(root ? root : ".") + "/10.05_web/3_frontend";
+        }
         // device set lives for the process lifetime, menus only borrow it
         devices_startup(/*with_emulated_CPU*/false);
         webserver = new webserver_c(opt_web_port, docroot);

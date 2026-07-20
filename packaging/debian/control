@@ -1,0 +1,20 @@
+Source: qbone
+Section: misc
+Priority: optional
+Maintainer: Hans Huebner <hans.huebner@gmail.com>
+Standards-Version: 3.9.6
+
+Package: qbone
+Architecture: armhf
+Depends: ${misc:Depends}, iproute2, ifupdown, bridge-utils
+Description: PDP-11 Qbus device emulator for the QBone cape
+ Emulates Qbus mass storage, serial and Ethernet controllers for a physical
+ PDP-11, on a BeagleBone Black carrying a QBone cape. The PRU firmware that
+ drives the bus is built into the executable, and a web interface on port 80
+ operates the machine: device parameters, disk images, console streams and a
+ live dashboard.
+ .
+ The cape's device tree overlay and the PRU interface are boot-time settings.
+ Run qbone-setup after installing: it applies them, checks the hardware, puts
+ the emulated Ethernet controller on the network and starts the services. See
+ /usr/share/doc/qbone/README.Debian.

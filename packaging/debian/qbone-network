@@ -1,0 +1,36 @@
+#!/bin/sh
+# Create or remove the veth pair the emulated Ethernet controller binds to.
+# Idempotent: safe to run when the pair already exists.
+
+set -e
+CONF=/etc/qbone/network.conf
+[ -r $CONF ] && . $CONF
+
+PDP_IF=${PDP_IF:-veth-pdp}
+PEER_IF=${PEER_IF:-veth-br}
+
+case "$1" in
+start)
+    if ! ip link show "$PDP_IF" >/dev/null 2>&1; then
+        ip link add "$PDP_IF" type veth peer name "$PEER_IF"
+    fi
+    ip link set "$PDP_IF" up
+    ip link set "$PEER_IF" up
+    if [ -n "$BRIDGE" ]; then
+        if ip link show "$BRIDGE" >/dev/null 2>&1; then
+            # re-enslaving an already-enslaved port is a no-op
+            ip link set "$PEER_IF" master "$BRIDGE"
+        else
+            echo "qbone-network: bridge $BRIDGE does not exist, $PEER_IF left detached" >&2
+        fi
+    fi
+    ;;
+stop)
+    # deleting either end removes the pair
+    ip link del "$PDP_IF" 2>/dev/null || true
+    ;;
+*)
+    echo "usage: $0 start|stop" >&2
+    exit 2
+    ;;
+esac
