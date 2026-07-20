@@ -1149,6 +1149,13 @@ void qunibusadapter_c::worker(unsigned instance)
     worker_init_realtime_priority(rt_device); // do not block while debugging
     // worker_init_realtime_priority(rt_max); // set to max prio
 
+    // The counter the PRU stamps its events with. Null on a backend that
+    // cannot reach the PRU control registers, and then nothing is recorded.
+    event_latency.counter = pru_backend->cycle_counter();
+    event_latency.reset();
+    if (event_latency.counter == NULL)
+        INFO("no PRU cycle counter: event latency will not be measured");
+
     // mailbox may be un-initialized
 
     while (!workers_terminate) {
@@ -1269,6 +1276,11 @@ void qunibusadapter_c::worker(unsigned instance)
 			// only via SSYN/RPLY halted deviceregister accesses. So make sure pending INIT are processed before register access
             if (!EVENT_IS_ACKED(*mailbox, deviceregister) && EVENT_IS_ACKED(*mailbox, init)) {
                 any_event = true;
+
+                // How long this bus cycle has been stretched waiting for us.
+                // Sampled before the event is serviced, so it measures Linux
+                // getting round to this thread and nothing of our own work.
+                event_latency.sample(mailbox->events.deviceregister_signal_cycle);
 
                 // DATI/DATO
                 // DEBUG_FAST("EVENT_DEVICEREGISTER:  control=%d, addr=%06o", (int)mailbox->events.unibus_control, mailbox->events.addr);

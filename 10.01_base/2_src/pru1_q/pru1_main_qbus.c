@@ -92,6 +92,10 @@
 
 void main(void) {
 
+	// Free-running counter, so the ARM can measure how long it left the PRU
+	// holding the bus. Costs nothing while it runs.
+	PRU_IEP_TMR_GLB_CFG = PRU_IEP_TMR_GLB_CFG_RUN;
+
 	// state function pointer for different state machines
 	statemachine_state_func sm_data_master_state = NULL;
 	// these are function pointers: could be 16bit on PRU?

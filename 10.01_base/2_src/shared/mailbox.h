@@ -289,6 +289,19 @@ typedef struct {
 	uint8_t init_signal_cur; // ... to this
 
 	uint8_t _dummy9[1]; // make record multiple of dword !!!
+
+	// The IEP counter as the device register event was raised.
+	//
+	// The PRU leaves RPLY asserted from here until the ARM acknowledges, so
+	// this is where the QBUS cycle starts being stretched while Linux gets
+	// round to the worker. The ARM reads the same counter on waking and
+	// takes the difference, which keeps the measurement in one clock domain.
+	//
+	// The IEP counter rather than the PRU's own CYCLE register: CYCLE
+	// saturates at 0xffffffff and stops, which a measurement meant to run for
+	// hours cannot use. IEP counts at the same 200 MHz - 5 ns a tick - and
+	// wraps, so unsigned subtraction stays right for as long as it runs.
+	uint32_t deviceregister_signal_cycle;
 } mailbox_events_t;
 
 typedef struct {
@@ -343,6 +356,15 @@ bool mailbox_execute(uint8_t request);
 
 #else
 // included by PRU code
+// The PRU-ICSS Industrial Ethernet peripheral, used here only for its
+// free-running 32 bit counter. Its registers are at 0x2e000 in the PRU's own
+// address space; AM335x_PRU.cmd names the same range PRU_IEP.
+#define PRU_IEP_TMR_GLB_CFG	(*(volatile uint32_t *)0x0002e000)
+#define PRU_IEP_TMR_CNT		(*(volatile uint32_t *)0x0002e00c)
+// DEFAULT_INC 1 and CNT_ENABLE: one count per 200 MHz cycle, so the counter
+// wraps every 21 seconds rather than every 4.
+#define PRU_IEP_TMR_GLB_CFG_RUN	0x00000011
+
 #ifndef _MAILBOX_C_
 extern volatile far mailbox_t mailbox;
 #endif
@@ -355,6 +377,8 @@ extern volatile far mailbox_t mailbox;
 			mailbox.events.deviceregister.register_handle = _reg->event_register_handle ;\
 			mailbox.events.deviceregister.addr = _addr ;									 \
 			mailbox.events.deviceregister.data = _data ;									\
+			/* when the stretching of this bus cycle starts, for the ARM to measure */ \
+			mailbox.events.deviceregister_signal_cycle = PRU_IEP_TMR_CNT ;	\
 			EVENT_SIGNAL(mailbox,deviceregister) ;						\
 			/* data for ARM valid now*/ 									\
 			PRU2ARM_INTERRUPT ; 											\

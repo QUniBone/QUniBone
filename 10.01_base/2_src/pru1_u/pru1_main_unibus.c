@@ -90,6 +90,10 @@
  */
 
 void main(void) {
+
+	// Free-running counter, so the ARM can measure how long it left the PRU
+	// holding the bus. Costs nothing while it runs.
+	PRU_IEP_TMR_GLB_CFG = PRU_IEP_TMR_GLB_CFG_RUN;
 	// state function pointer for different state machines
 	statemachine_arb_worker_func sm_device_arb_worker = &sm_arb_worker_device;
 	statemachine_state_func sm_data_slave_state = NULL;

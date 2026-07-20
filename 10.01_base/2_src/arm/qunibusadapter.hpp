@@ -33,6 +33,7 @@
 #include "priorityrequest.hpp"
 #include "qunibusadapter.hpp"
 #include "qunibusdevice.hpp"
+#include "event_latency.hpp"
 
 // for each priority arbitration level, theres a table with backplane slots.
 //  Each device sits in a slot, the slot determinss the request priority within one level (BR4567,NP).
@@ -55,6 +56,11 @@ class unibuscpu_c ;
 
 // is a device_c. need a thread (but no params)
 class qunibusadapter_c: public device_c {
+public:
+	// How long the PRU was left holding the bus, per device register event.
+	// Public because it is read out for reporting and reset from there too.
+	event_latency_c event_latency;
+
 private:
 
 	// handle arbitration for each of the 5 device request levels in parallel

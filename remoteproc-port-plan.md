@@ -141,9 +141,42 @@ first wait, lost the first event and with it the first bus transaction: the
 first DATI after entering device emulation timed out every time, and the same
 read immediately after succeeded. The event device is armed when it is opened.
 
-Open: whether RT is needed at all. The board runs the non-RT kernel, which is
-the baseline that answers it - `linux-image-6.12.93-bone-rt-r63` is one
-`apt install` away, and CZQNA under both settles it.
+## Does the stock kernel need to be a realtime one
+
+The emulation depends on the kernel in one place, and `/api/latency`
+measures it: the PRU leaves RPLY asserted from raising a device register
+event until the ARM acknowledges, so that interval is a QBUS cycle held open
+while Linux schedules the bus worker. It is a stall, not a failure - the PRU
+answers the cycle from its own copy of the register before the ARM is
+involved, so the bus timeout is long satisfied and what the ARM holds open
+is the tail of an already-answered cycle.
+
+Three hours on the non-RT `6.12.93-bone63`, 2.11BSD multi-user driving the
+emulated RA81, 66506 events:
+
+| bucket | events | share |
+|---|---|---|
+| under 32us | 1619 | 2.4% |
+| 64us | 59803 | 89.9% |
+| 128us | 4998 | 7.5% |
+| 256us | 84 | 0.13% |
+| 512us | 1 | |
+| 1024us | 1 | |
+
+Mean 102us, worst 1339us, no bus errors and nothing logged by either side.
+
+So the stock kernel carries this workload: 99.8% of cycles complete inside
+128us, and the distribution thinned as the run went on rather than drifting.
+What an RT kernel would buy is the far tail - a single 1.3ms excursion,
+which on a SCHED_FIFO thread with RT throttling disabled has a specific
+cause worth knowing (a preemption-disabled section, an interrupt storm, SD
+I/O). At one occurrence in 66506 the rate is barely measured, and 1.3ms is
+three orders below anything 2.11BSD reacts to - its line clock ticks every
+16.6ms.
+
+Worth returning to only if a longer run shows those excursions recurring at
+a rate, or reaching far enough to matter. `linux-image-6.12.93-bone-rt-r63`
+is one `apt install` away, and the same measurement under both settles it.
 
 ## The device tree has to be rebuilt regardless
 

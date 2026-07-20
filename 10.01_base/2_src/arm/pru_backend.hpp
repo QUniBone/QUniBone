@@ -65,6 +65,12 @@ public:
 	// timeout, negative on error.
 	virtual int wait_event(unsigned timeout_us) = 0;
 	virtual void clear_event(void) = 0;
+
+	// The free-running IEP counter, which the PRU samples as it raises
+	// an event so the ARM can measure how long it took to answer. Null when
+	// a backend cannot reach the control registers, and then no latency is
+	// recorded; nothing else depends on it.
+	virtual volatile uint32_t *cycle_counter(void) { return NULL; }
 };
 
 // The backends. Each returns a singleton; open() decides whether it can run

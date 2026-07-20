@@ -46,6 +46,14 @@
 #define PRUSS_DATARAM_SIZE	0x2000	// 8K each
 #define PRUSS_SHARED_RAM_SIZE	0x3000	// 12K
 
+// The PRU-ICSS Industrial Ethernet peripheral's free-running counter, which
+// the PRU firmware enables and samples as it raises an event. The PRU's own
+// CYCLE register would be the obvious choice and is not usable: it saturates
+// at 0xffffffff instead of wrapping, so it stops telling the time after 21
+// seconds.
+#define PRUSS_IEP_PA		0x4a32e000
+#define PRU_IEP_TMR_CNT_OFFSET	0x0c
+
 // The remoteproc devices appear named after the core's address.
 #define PRU0_CORE_NAME		"4a334000.pru"
 #define PRU1_CORE_NAME		"4a338000.pru"
@@ -62,6 +70,7 @@ private:
 	std::string rproc[2];	// sysfs directory per PRU
 	int mem_fd;		// /dev/mem, held open for the mappings
 	int event_fd;		// uio device for PRU events
+	volatile uint32_t *cycle_reg;	// PRU1's CYCLE counter, mapped on demand
 
 	// sysfs is a pile of one-line files; these two do all the talking.
 	bool write_file(const std::string &path, const std::string &value) {
@@ -121,7 +130,7 @@ private:
 	}
 
 public:
-	pru_backend_remoteproc_c(): mem_fd(-1), event_fd(-1) {
+	pru_backend_remoteproc_c(): mem_fd(-1), event_fd(-1), cycle_reg(NULL) {
 		log_label = "PRURP";
 	}
 
@@ -316,6 +325,20 @@ public:
 		if (::read(event_fd, &count, sizeof(count)) != sizeof(count))
 			return -1;
 		return (int) count;
+	}
+
+	// Mapped once and kept: the worker reads it on every event.
+	volatile uint32_t *cycle_counter(void) override {
+		if (cycle_reg == NULL) {
+			void *p = mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, mem_fd,
+					PRUSS_IEP_PA);
+			if (p == MAP_FAILED) {
+				ERROR("cannot map the PRU IEP counter: %s", strerror(errno));
+				return NULL;
+			}
+			cycle_reg = (volatile uint32_t *) ((char *) p + PRU_IEP_TMR_CNT_OFFSET);
+		}
+		return cycle_reg;
 	}
 
 	void clear_event(void) override {
