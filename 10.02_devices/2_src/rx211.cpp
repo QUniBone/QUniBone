@@ -536,19 +536,25 @@ void RX211_c::worker(unsigned instance)
 {
     UNUSED(instance); // only one
 
+    // pthread_cond_wait() requires the mutex to be held by the waiter, and it
+    // is held from here on except while waiting -- the same discipline the
+    // other controllers keep.
+    assert(!pthread_mutex_lock(&on_after_register_access_mutex));
+
     while (!workers_terminate) {
-        // write into RXDB starts DMA
-        int res = pthread_cond_wait(&on_after_register_access_cond,
-                                    &on_after_register_access_mutex);
-        if (res != 0) {
-            ERROR("RX211_c::worker() pthread_cond_wait = %d = %s>", res, strerror(res));
-            continue;
+        // A write into RXDB starts the DMA. The wait is on the state and not
+        // on the signal alone: on_after_register_access() runs on the PRU
+        // event thread and can reach state_dma_busy before this thread is back
+        // in the wait, and a signal sent then reaches nobody.
+        while (state != state_dma_busy && !workers_terminate) {
+            int res = pthread_cond_wait(&on_after_register_access_cond,
+                                        &on_after_register_access_mutex);
+            if (res != 0)
+                ERROR("RX211_c::worker() pthread_cond_wait = %d = %s>", res, strerror(res));
         }
         if (workers_terminate)
             break;
 
-        if (state != state_dma_busy)
-            continue ;
         // only worker operation is DMA.
         // RX2WC and RX2BA set via RXDB access
         switch (function_select) {
@@ -574,5 +580,6 @@ void RX211_c::worker(unsigned instance)
         done = true ;
         update_status(__func__) ;
     }
+    assert(!pthread_mutex_unlock(&on_after_register_access_mutex));
 }
 

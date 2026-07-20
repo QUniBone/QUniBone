@@ -126,7 +126,9 @@ private:
         state_wait_rx2ba, // wait for RXDB write fo RX2BA
         state_dma_busy // worker() doing DMA and trasnfer to uCPU
     } ;
-    enum state_enum state ;
+    // written by on_after_register_access() on the PRU event thread and read
+    // by worker(): everything shared between threads must be volatile
+    volatile enum state_enum state ;
 
     uint8_t extended_address ; // bit 17,16 of DMA address
 
