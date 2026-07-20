@@ -18,6 +18,32 @@ Identifies the bridge.
 {"platform": "QBUS", "api_version": 0}
 ```
 
+## Admin password
+
+Every request needs HTTP basic auth once a password is set - static files and
+the WebSocket handshakes included. Any user name is accepted. A board with no
+password answers everything, which is how a new one is reached in order to set
+one.
+
+### `GET /api/auth`
+
+```json
+{"configured": false, "source": "none", "min_length": 8}
+```
+
+`source` is `none`, `settings` for a password set through this endpoint, or
+`environment` for one given as `WEBUI_PASSWORD`.
+
+### `PUT /api/auth`
+
+```json
+{"password": "...", "current": "..."}
+```
+
+`current` is required once a password exists, and refused with 403 if it does
+not match. A password shorter than `min_length` is refused with 422, as is any
+attempt to change one that came from the environment. Answers `{"ok": true}`.
+
 ## Devices and parameters
 
 Devices are the emulated hardware — controllers, drives, serial lines.

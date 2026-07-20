@@ -36,6 +36,7 @@
 #include "qunibus.h"
 #include "device_configuration.hpp"
 
+#include "webauth.hpp"
 #include "webevents.hpp"
 #include "webconsole_ext.hpp"
 #include "websettings.hpp"
@@ -98,6 +99,7 @@ static void load_settings(void) {
 	picojson::value v;
 	if (!picojson::parse(v, ss.str()).empty() || !v.is<picojson::object>())
 		return;
+	webauth_load(v.get("admin"));
 	const picojson::value &ec = v.get("external_console");
 	if (!ec.is<picojson::object>())
 		return;
@@ -116,9 +118,28 @@ static void save_settings(void) {
 		std::lock_guard<std::mutex> lock(settings_mutex);
 		root["external_console"] = external_console_json();
 	}
-	std::ofstream f(settings_path.c_str());
-	if (f)
+	picojson::value admin = webauth_json();
+	if (!admin.is<picojson::null>())
+		root["admin"] = admin;
+
+	// The file carries a password digest, so it is written through a private
+	// temporary and renamed: readable only by the emulator's user, and never
+	// seen truncated by a reader that opens it mid-write.
+	std::string tmp_path = settings_path + ".new";
+	{
+		std::ofstream f(tmp_path.c_str());
+		if (!f)
+			return;
 		f << picojson::value(root).serialize();
+		if (!f)
+			return;
+	}
+	chmod(tmp_path.c_str(), S_IRUSR | S_IWUSR);
+	rename(tmp_path.c_str(), settings_path.c_str());
+}
+
+void websettings_save(void) {
+	save_settings();
 }
 
 external_console_c websettings_external_console(void) {

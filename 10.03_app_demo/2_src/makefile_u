@@ -188,6 +188,7 @@ OBJECTS+= $(OBJDIR)/webserver.o	\
 	$(OBJDIR)/webstorage.o	\
 	$(OBJDIR)/webconfigs.o	\
 	$(OBJDIR)/websettings.o	\
+	$(OBJDIR)/webauth.o	\
 	$(OBJDIR)/civetweb.o
 endif
 
@@ -496,6 +497,9 @@ $(OBJDIR)/webconfigs.o :  $(WEB_SRC_DIR)/webconfigs.cpp $(WEB_SRC_DIR)/webconfig
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/websettings.o :  $(WEB_SRC_DIR)/websettings.cpp $(WEB_SRC_DIR)/websettings.hpp $(WEB_SRC_DIR)/webevents.hpp device_configuration.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/webauth.o :  $(WEB_SRC_DIR)/webauth.cpp $(WEB_SRC_DIR)/webauth.hpp $(WEB_SRC_DIR)/websettings.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 # civetweb is C, compiled with its own flags

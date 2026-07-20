@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QBone</title>
+<!-- Browsers that understand SVG icons take favicon.svg and scale it; the
+     rest fall back to the .ico. The manifest is fetched without credentials
+     unless it says otherwise, so behind the admin password it needs
+     crossorigin, or it comes back 401 and the icons never load. -->
+<link rel="icon" href="favicon.ico" sizes="32x32">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest" crossorigin="use-credentials">
 <link rel="stylesheet" href="vendor/xterm.css">
 <script src="vendor/xterm.js"></script>
 
@@ -1177,6 +1185,7 @@ async function initLive() {
     const st = await fetch('/api/state');
     if (!st.ok) throw new Error();
     const state = await st.json();
+    await checkAuth().catch(() => {});
     await refreshDevices();
     LIVE = true;
     setConn(true);
@@ -1862,6 +1871,79 @@ function confirmModal(title, body, confirmLabel) {
     document.addEventListener('keydown', onKey);
     document.body.appendChild(host);
     host.querySelector('[data-cm-yes]').focus();
+  });
+}
+
+/* ---------------- admin password: /api/auth ---------------- */
+/* A board with no password set answers every request, which is what makes it
+   reachable the first time. The dialog below is what closes that window: it
+   has no cancel, and it stays until the password is accepted. Once one is
+   set the browser's own basic-auth prompt carries it from then on. */
+
+async function checkAuth() {
+  const r = await fetch('/api/auth');
+  if (!r.ok) return;
+  const auth = await r.json();
+  if (auth.configured) return;
+  await setPasswordModal(auth.min_length || 8);
+}
+
+function setPasswordModal(minLength) {
+  return new Promise(resolve => {
+    const host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.innerHTML =
+      '<div class="card modal-card">' +
+        '<div class="card-head"><h3>Set an admin password</h3></div>' +
+        '<div class="card-body">' +
+          '<p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' +
+            'This interface controls the machine and is open to anyone who can ' +
+            'reach it until a password is set. At least ' + minLength +
+            ' characters. Any user name is accepted when the browser asks.' +
+          '</p>' +
+          '<div class="set-grid">' +
+            '<label class="set-name" for="pw1">Password</label>' +
+            '<input class="set-val" id="pw1" type="password" autocomplete="new-password">' +
+            '<label class="set-name" for="pw2">Repeat</label>' +
+            '<input class="set-val" id="pw2" type="password" autocomplete="new-password">' +
+          '</div>' +
+          '<p id="pw-err" class="muted" style="margin:12px 0 0; font-size:var(--fs-1); color:var(--danger); min-height:1.2em"></p>' +
+          '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px">' +
+            '<button class="btn primary" data-pw-set>Set password</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    const err = msg => { host.querySelector('#pw-err').textContent = msg || ''; };
+    async function submit() {
+      const p1 = host.querySelector('#pw1').value;
+      const p2 = host.querySelector('#pw2').value;
+      if (p1.length < minLength) return err('At least ' + minLength + ' characters.');
+      if (p1 !== p2) return err('The two entries do not match.');
+      err('');
+      let data = {};
+      let ok = false;
+      try {
+        const r = await fetch('/api/auth', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: p1 })
+        });
+        ok = r.ok;
+        data = await r.json().catch(() => ({}));
+      } catch (e) { /* fall through to the message below */ }
+      if (!ok) return err(data.error || 'The password could not be set.');
+      host.remove();
+      toast('auth', 'Admin password set');
+      resolve(true);
+    }
+    host.addEventListener('click', ev => {
+      if (ev.target.closest('[data-pw-set]')) submit();
+    });
+    host.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') submit();
+    });
+    document.body.appendChild(host);
+    host.querySelector('#pw1').focus();
   });
 }
 

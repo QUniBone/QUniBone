@@ -75,6 +75,13 @@ install -d -m 755 $STAGE/DEBIAN \
 install -m 755 $BINARY $STAGE/usr/bin/qbone
 install -m 644 10.05_web/3_frontend/index.html $STAGE/usr/share/qbone/frontend/
 install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/qbone/frontend/vendor/
+# favicons and the PWA manifest, served from the web root beside index.html
+install -m 644 10.05_web/3_frontend/favicon.ico 10.05_web/3_frontend/favicon.svg \
+    10.05_web/3_frontend/favicon-16x16.png 10.05_web/3_frontend/favicon-32x32.png \
+    10.05_web/3_frontend/favicon-48x48.png 10.05_web/3_frontend/apple-touch-icon.png \
+    10.05_web/3_frontend/android-chrome-192x192.png \
+    10.05_web/3_frontend/android-chrome-512x512.png \
+    10.05_web/3_frontend/site.webmanifest $STAGE/usr/share/qbone/frontend/
 install -m 644 packaging/debian/qbone.service $STAGE/lib/systemd/system/
 install -m 644 packaging/debian/startup.cmd $STAGE/etc/qbone/
 install -m 644 packaging/debian/network.conf $STAGE/etc/qbone/

@@ -30,7 +30,9 @@
 #include "picojson.h"
 
 #include "logger.hpp"
+#include "webauth.hpp"
 #include "webserver.hpp"
+#include "qunibusadapter.hpp"
 
 webserver_c *webserver = nullptr;
 
@@ -48,13 +50,12 @@ static void *webserver_init_thread(const struct mg_context *ctx, int thread_type
 	return nullptr;
 }
 
-/*** HTTP basic auth, enabled by setting WEBUI_PASSWORD in the environment
-     (export it from qunibone-platform.env). Any user name is accepted, the
-     password must match. Unset = open, matching the bench-LAN trust model.
+/*** HTTP basic auth. Any user name is accepted, the password must match the
+     one webauth.cpp holds - set through the web interface, or given as
+     WEBUI_PASSWORD in the environment. A board with no password yet is open,
+     which is how the frontend reaches /api/auth to set one.
      Browsers replay the credentials on the WebSocket handshakes, so /ws/
      is covered as well. ***/
-
-static std::string webui_password;
 
 // decode base64 into out; result false on illegal input
 static bool base64_decode(const char *in, std::string *out) {
@@ -78,7 +79,7 @@ static bool base64_decode(const char *in, std::string *out) {
 
 // result 0: request continues (authorized or auth disabled), 1: rejected
 static int begin_request_handler(struct mg_connection *conn) {
-	if (webui_password.empty())
+	if (!webauth_configured())
 		return 0;
 	const char *auth = mg_get_header(conn, "Authorization");
 	if (auth != nullptr && strncmp(auth, "Basic ", 6) == 0) {
@@ -86,8 +87,7 @@ static int begin_request_handler(struct mg_connection *conn) {
 		if (base64_decode(auth + 6, &credentials)) {
 			size_t colon = credentials.find(':');
 			if (colon != std::string::npos
-					&& credentials.compare(colon + 1, std::string::npos,
-							webui_password) == 0)
+					&& webauth_verify(credentials.substr(colon + 1)))
 				return 0;
 		}
 	}
@@ -108,6 +108,47 @@ static const char *platform_name = "HOST"; // host-side test build
 
 // GET /api/state — phase 0: identifies the platform and the API generation.
 // Bus/device state fields are added with the corresponding phases.
+// GET  /api/latency  - how long the PRU was left holding the bus
+// POST /api/latency  - start a fresh measurement
+//
+// The maximum is the number that matters: one late wakeup stretches a QBUS
+// cycle far enough for the PDP-11 to call it a timeout, and an average would
+// bury it. The histogram shows whether the tail is a cliff or a slope.
+static int api_latency_handler(struct mg_connection *conn, void * /*cbdata*/) {
+	const struct mg_request_info *ri = mg_get_request_info(conn);
+	event_latency_c &lat = qunibusadapter->event_latency;
+
+	if (!strcmp(ri->request_method, "POST")) {
+		lat.reset();
+	}
+
+	picojson::object o;
+	o["available"] = picojson::value(lat.counter != NULL);
+	o["count"] = picojson::value((double) lat.count);
+	o["max_us"] = picojson::value((double) event_latency_c::cycles_to_us(lat.max_cycles));
+	o["mean_us"] = picojson::value((double) event_latency_c::cycles_to_us(lat.mean_cycles()));
+
+	picojson::array hist;
+	for (unsigned b = 0; b < EVENT_LATENCY_BUCKETS; b++) {
+		if (lat.bucket[b] == 0)
+			continue;
+		picojson::object e;
+		e["from_us"] = picojson::value((double) event_latency_c::bucket_floor_us(b));
+		e["count"] = picojson::value((double) lat.bucket[b]);
+		hist.push_back(picojson::value(e));
+	}
+	o["histogram"] = picojson::value(hist);
+
+	std::string body = picojson::value(o).serialize();
+	mg_printf(conn,
+			"HTTP/1.1 200 OK\r\n"
+			"Content-Type: application/json\r\n"
+			"Cache-Control: no-store\r\n"
+			"Content-Length: %u\r\n\r\n", (unsigned) body.size());
+	mg_write(conn, body.c_str(), body.size());
+	return 200;
+}
+
 static int api_state_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	picojson::object state;
 	state["platform"] = picojson::value(platform_name);
@@ -147,10 +188,13 @@ bool webserver_c::start(void) {
 			"num_threads", "16", //
 			"enable_directory_listing", "no", //
 			"static_file_max_age", "0", //
+			// civetweb does not know the extension, and would serve the PWA
+			// manifest as text/plain
+			"extra_mime_types", ".webmanifest=application/manifest+json", //
 			nullptr };
 
-	const char *password = getenv("WEBUI_PASSWORD");
-	webui_password = password ? password : "";
+	// before the settings file is read, so WEBUI_PASSWORD outranks what it holds
+	webauth_init();
 
 	struct mg_callbacks callbacks;
 	memset(&callbacks, 0, sizeof(callbacks));
@@ -165,9 +209,12 @@ bool webserver_c::start(void) {
 		return false;
 	}
 	mg_set_request_handler(ctx, "/api/state", api_state_handler, nullptr);
+	mg_set_request_handler(ctx, "/api/latency", api_latency_handler, nullptr);
+	webauth_register(ctx);
 	webapi_register(ctx);
 	INFO("web server listening on port %u, document root %s, %s", port, docroot.c_str(),
-			webui_password.empty() ? "open access" : "basic auth enabled");
+			webauth_configured() ? "basic auth enabled"
+					: "open until an admin password is set");
 	return true;
 }
 
