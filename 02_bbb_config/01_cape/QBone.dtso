@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * QBone/UniBone cape, for kernels that apply overlays from U-Boot.
+ *
+ * The original UniBone.dts was written for bone_capemgr, which was removed in
+ * 4.19. This carries the same pin configuration into the syntax the current
+ * device tree compiler wants: targets named by label, and none of the capemgr
+ * metadata - part-number, version, exclusive-use - which nothing reads any
+ * more. It also carries the two things libprussdrv used to supply from the
+ * kernel side, the emulated machine's memory and the PRU event.
+ *
+ * The pin settings are unchanged, but written as this pinmux wants them:
+ * #pinctrl-cells is 2, so each pin is three cells, <offset conf mux>, where
+ * offset counts from 0x44e10800 and conf carries the bits of SPRU73N
+ * 9.2.2.2.0 above the mux mode - SLEWCTRL 0x40 slow, RXACTIVE 0x20 input
+ * enable, PULLTYPESEL 0x10 pull up, PULLUDEN 0x08 pull disable.
+ *
+ * Install:
+ *   dtc -@ -I dts -O dtb -o QBone.dtbo QBone.dtso
+ *   cp QBone.dtbo /boot/dtbs/$(uname -r)/overlays/
+ *   uboot_overlay_addr4=/boot/dtbs/$(uname -r)/overlays/QBone.dtbo in /boot/uEnv.txt
+ */
+
+/dts-v1/;
+/plugin/;
+
+&am33xx_pinmux {
+	qbone_gpio_pins: qbone-gpio-pins {
+		pinctrl-single,pins = <
+			0x010 0x28 0x07	/* P8.23 SW0    gpio1_4  in,  no pull */
+			0x014 0x28 0x07	/* P8.22 SW1    gpio1_5  in,  no pull */
+			0x018 0x28 0x07	/* P8.3  SW2    gpio1_6  in,  no pull */
+			0x01c 0x28 0x07	/* P8.4  SW3    gpio1_7  in,  no pull */
+			0x030 0x28 0x07	/* P8.12 BUTTON gpio1_12 in,  no pull */
+			0x000 0x00 0x07	/* P8.25 LED0   gpio1_0  out, pulldown */
+			0x004 0x00 0x07	/* P8.24 LED1   gpio1_1  out, pulldown */
+			0x008 0x00 0x07	/* P8.5  LED2   gpio1_2  out, pulldown */
+			0x00c 0x00 0x07	/* P8.6  LED3   gpio1_3  out, pulldown */
+			0x038 0x10 0x07	/* P8.16 REG_ENABLE gpio1_14 out, pullup */
+			0x034 0x10 0x07	/* P8.11 BUS_ENABLE gpio1_13 out, pullup */
+			0x084 0x00 0x07	/* P8.20 hold the eMMC CMD pin at a level */
+			0x070 0x00 0x07	/* P9.11 activity LED gpio0_30 out, pulldown */
+			0x078 0x10 0x07	/* P9.12 panel reset  gpio1_28 out, pullup */
+			0x09c 0x00 0x02	/* P8.9  timer5 output, pulldown */
+		>;
+	};
+
+	qbone_uart1_pins: qbone-uart1-pins {
+		pinctrl-single,pins = <
+			0x180 0x30 0x00	/* P9.26 UART1 RXD, pullup */
+			0x184 0x10 0x00	/* P9.24 UART1 TXD, pullup */
+		>;
+	};
+
+	qbone_uart2_pins: qbone-uart2-pins {
+		pinctrl-single,pins = <
+			0x150 0x30 0x01	/* P9.22 UART2 RXD, pullup */
+			0x154 0x10 0x01	/* P9.21 UART2 TXD, pullup */
+		>;
+	};
+
+	qbone_pru_pins: qbone-pru-pins {
+		pinctrl-single,pins = <
+			/* PRU0 r30 0..7, the register data outputs */
+			0x190 0x10 0x05	/* P9.31 */
+			0x194 0x10 0x05	/* P9.29 */
+			0x198 0x10 0x05	/* P9.30 */
+			0x19c 0x10 0x05	/* P9.28 */
+			0x1a0 0x10 0x05	/* P9.42 */
+			0x1a4 0x10 0x05	/* P9.27 */
+			0x1a8 0x10 0x05	/* P9.41 */
+			0x1ac 0x10 0x05	/* P9.25 */
+			/* P9.41 and P9.42 each share a pad with a second GPIO;
+			 * tristate those so they do not drive against the PRU */
+			0x164 0x28 0x07	/* gpio0_7  input, no pull */
+			0x1b4 0x28 0x07	/* gpio0_20 input, no pull */
+			/* PRU1 r31 0..7, the register data inputs */
+			0x0a0 0x28 0x06	/* P8.45 */
+			0x0a4 0x28 0x06	/* P8.46 */
+			0x0a8 0x28 0x06	/* P8.43 */
+			0x0ac 0x28 0x06	/* P8.44 */
+			0x0b0 0x28 0x06	/* P8.41 */
+			0x0b4 0x28 0x06	/* P8.42 */
+			0x0b8 0x28 0x06	/* P8.39 */
+			0x0bc 0x28 0x06	/* P8.40 */
+			/* PRU1 r30 8..11, the register address and write strobe */
+			0x0e0 0x00 0x05	/* P8.27 REG_ADR_0 */
+			0x0e4 0x00 0x05	/* P8.29 REG_ADR_1 */
+			0x0e8 0x00 0x05	/* P8.28 REG_ADR_2 */
+			0x0ec 0x10 0x05	/* P8.30 REG_WRITE */
+			0x080 0x00 0x05	/* P8.21 PRU1 r30_12, debug */
+		>;
+	};
+};
+
+/*
+ * The emulated machine's memory, 8 MB to hold the 4 MB a 22-bit QBUS can
+ * address. uio_pruss used to carve this out of its own pool; remoteproc has
+ * no pool, so it is reserved here and mapped through /dev/mem. no-map keeps
+ * the kernel out of it, which both leaves it to the PRUs and gives the ARM an
+ * uncached mapping, so the two sides see each other's writes.
+ */
+&{/} {
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		qbone_ddr: qbone-ddr@9f000000 {
+			reg = <0x9f000000 0x00800000>;
+			no-map;
+		};
+	};
+};
+
+/*
+ * The event a PRU raises when it wants the ARM's attention. The firmware
+ * writes R31 = 0x20 | 3, which the PRU interrupt controller sees as system
+ * event 19; the three cells route it through channel 2 to host interrupt 2,
+ * the first one wired to the ARM. uio_pdrv_genirq turns that into a
+ * /dev/uioN whose read() returns once per event.
+ */
+&{/ocp} {
+	qbone_event: qbone-event {
+		compatible = "generic-uio";
+		linux,uio-name = "qbone-pru-event";
+		interrupt-parent = <&pruss_intc>;
+		interrupts = <19 2 2>;
+		status = "okay";
+	};
+};
+
+/* The PRU pins belong to the PRU-ICSS, which the base tree already describes */
+&pruss {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qbone_pru_pins>;
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qbone_uart1_pins>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qbone_uart2_pins>;
+	status = "okay";
+};
+
+/*
+ * Claim the cape's GPIO pins. Muxing is global, so one consumer configures
+ * them all; gpio1 owns most of them and takes the group.
+ */
+&gpio1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qbone_gpio_pins>;
+};
+
+/*
+ * Keep the GPIO modules clocked. The emulator reaches their registers
+ * through /dev/mem, which bypasses runtime PM: a bank whose driver has let
+ * it idle has no clock, and an access to it aborts rather than reads.
+ *
+ *     481ae000.gpio: control=auto status=suspended
+ *     Unhandled fault: external abort on non-linefetch (0x1018)
+ *
+ * ti,no-idle on the interconnect target module holds each one awake.
+ */
+&gpio0_target { ti,no-idle; };
+&gpio3_target { ti,no-idle; };
+
+/* gpio1 and gpio2's target modules carry no label, so name them by path */
+&{/ocp/interconnect@48000000/segment@0/target-module@4c000} { ti,no-idle; };
+&{/ocp/interconnect@48000000/segment@100000/target-module@ac000} { ti,no-idle; };

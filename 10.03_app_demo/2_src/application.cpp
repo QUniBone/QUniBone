@@ -364,9 +364,9 @@ int application_c::run(int argc, char *argv[])
     INFO("Printing verbose output.");
     DEBUG("Printing DEBUG output. Log file = \"%s\"", logger->default_filepath.c_str());
 
-    /* prussdrv_init() will segfault if called with EUID != 0 */
+    /* the PRU interfaces need physical memory, so root or nothing */
     if (geteuid()) {
-        FATAL("%s must be run as root to use prussdrv\n", argv[0]);
+        FATAL("%s must be run as root to reach the PRUs\n", argv[0]);
     }
 
     inputline.init();

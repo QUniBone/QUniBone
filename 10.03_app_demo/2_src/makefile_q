@@ -161,6 +161,9 @@ OBJECTS = $(OBJDIR)/application.o	\
 	$(OBJDIR)/kbhit.o	\
 	$(OBJDIR)/bitcalc.o	\
 	$(OBJDIR)/pru.o \
+	$(OBJDIR)/pru_backend.o \
+	$(OBJDIR)/pru_backend_prussdrv.o \
+	$(OBJDIR)/pru_backend_remoteproc.o \
 	$(OBJDIR)/mailbox.o	\
 	$(OBJDIR)/ddrmem.o	\
 	$(OBJDIR)/iopageregister.o	\
@@ -497,7 +500,26 @@ $(OBJDIR)/websettings.o :  $(WEB_SRC_DIR)/websettings.cpp $(WEB_SRC_DIR)/websett
 $(OBJDIR)/civetweb.o :  $(CIVETWEB_DIR)/civetweb.c $(CIVETWEB_DIR)/civetweb.h
 	$(CC) -c -O2 -DNO_SSL -DUSE_WEBSOCKET -DNO_CGI -I$(CIVETWEB_DIR) $< -o $@
 
-$(OBJDIR)/pru.o :  $(BASE_SRC_DIR)/pru.cpp $(BASE_SRC_DIR)/pru.hpp $(PRU0_CODE_LIST) $(PRU1_CODE_LIST)
+# The firmware ELF, embedded so remoteproc can be handed a file that came
+# out of the executable itself.
+$(PRU_DEPLOY_DIR)/%_elf.c : $(PRU_DEPLOY_DIR)/%.out
+	$(QUNIBONE_ROOT)/tools/bin2c.sh $< $*_elf $@
+
+PRU_ELF_LIST= \
+	$(PRU_DEPLOY_DIR)/pru0_code_all_elf.c \
+	$(PRU_DEPLOY_DIR)/pru1_code_qbus_elf.c \
+	$(PRU_DEPLOY_DIR)/pru1_code_test_elf.c
+
+$(OBJDIR)/pru.o :  $(BASE_SRC_DIR)/pru.cpp $(BASE_SRC_DIR)/pru.hpp $(PRU0_CODE_LIST) $(PRU1_CODE_LIST) $(PRU_ELF_LIST)
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/pru_backend.o :  $(BASE_SRC_DIR)/pru_backend.cpp $(BASE_SRC_DIR)/pru_backend.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/pru_backend_prussdrv.o :  $(BASE_SRC_DIR)/pru_backend_prussdrv.cpp $(BASE_SRC_DIR)/pru_backend.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/pru_backend_remoteproc.o :  $(BASE_SRC_DIR)/pru_backend_remoteproc.cpp $(BASE_SRC_DIR)/pru_backend.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 # files with PRU code and addresses

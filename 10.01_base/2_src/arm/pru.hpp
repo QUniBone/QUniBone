@@ -39,7 +39,7 @@
 #define _PRU_HPP_
 
 #include <stdint.h>
-#include "prussdrv.h"
+#include "pru_backend.hpp"
 
 #include "logsource.hpp"
 
@@ -47,7 +47,6 @@
 // Mailbox page & offset in PRU internal shared 12 KB RAM
 // Accessible by both PRUs, must be located in shared RAM
 // offset 0 == addr 0x10000 in linker cmd files for PRU0 AND PRU1 projects.
-// For use with prussdrv_map_prumem()
 #define PRUSS_MAX_IRAM_SIZE 8192
 
 // all entry addresses at 0
@@ -56,15 +55,14 @@
 #define PRU1_ENTRY_ADDR	0x00000000
 
 #ifndef PRU_MAILBOX_RAM_ID
-#define PRU_MAILBOX_RAM_ID	PRUSS0_SHARED_DATARAM
+#define PRU_MAILBOX_RAM_ID	PRU_RAM_SHARED
 #define PRU_MAILBOX_RAM_OFFSET	0
 #endif
 
 // Device register page & offset in PRU0 8KB RAM mapped into PRU1 space
 // offset 0 == addr 0x2000 in linker cmd files for PRU1 projects.
-// For use with prussdrv_map_prumem()
 #ifndef PRU_DEVICEREGISTER_RAM_ID
-#define PRU_DEVICEREGISTER_RAM_ID	PRUSS0_PRU0_DATARAM
+#define PRU_DEVICEREGISTER_RAM_ID	PRU_RAM_PRU0_DATA
 #define PRU_DEVICEREGISTER_RAM_OFFSET	0
 #endif
 

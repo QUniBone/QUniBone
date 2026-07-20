@@ -28,9 +28,9 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "prussdrv.h"
 
 #include "pru.hpp"
+#include "pru_backend.hpp"
 #include "logger.hpp"
 #include "ddrmem.h"
 #include "mailbox.h"
@@ -45,8 +45,8 @@ int mailbox_connect(void)
 {
 	void *pru_shared_dataram;
 	// get pointer to RAM
-	if (prussdrv_map_prumem(PRU_MAILBOX_RAM_ID, &pru_shared_dataram)) {
-		printf("ERROR: prussdrv_map_prumem() failed\n");
+	pru_shared_dataram = pru_backend->map_ram(PRU_MAILBOX_RAM_ID);
+	if (pru_shared_dataram == NULL) {
 		return -1;
 
 	}

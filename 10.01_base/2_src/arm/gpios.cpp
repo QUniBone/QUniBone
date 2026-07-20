@@ -35,6 +35,8 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <stdio.h>
 
 #include "mailbox.h"
 
@@ -71,6 +73,51 @@ gpios_c::gpios_c() {
     if (!memory_filedescriptor)
         FATAL("Can not open /dev/mem");
 
+}
+
+// sysfs_gpio_base(): where a GPIO bank starts in /sys/class/gpio.
+//
+// The sysfs numbering is not the SoC's own. Older kernels gave the first chip
+// base 0, so bank B pin P was 32*B+P; the dynamic base has since moved to 512
+// and those numbers name nothing. Each chip's label carries the SoC range it
+// covers - "gpio-32-63" for bank 1 - so ask the chip whose range starts where
+// this bank does, and take its base.
+static unsigned sysfs_gpio_base(unsigned bank_idx)
+{
+	char wanted[32];
+	sprintf(wanted, "gpio-%u-%u", 32 * bank_idx, 32 * bank_idx + 31);
+
+	DIR *dir = opendir("/sys/class/gpio");
+	if (dir != NULL) {
+		struct dirent *entry;
+		while ((entry = readdir(dir)) != NULL) {
+			if (strncmp(entry->d_name, "gpiochip", 8) != 0)
+				continue;
+			char path[512], label[64] = { 0 };
+			snprintf(path, sizeof(path), "/sys/class/gpio/%s/label", entry->d_name);
+			FILE *f = fopen(path, "r");
+			if (f == NULL)
+				continue;
+			if (fgets(label, sizeof(label), f) != NULL)
+				label[strcspn(label, "\n")] = 0;
+			fclose(f);
+			if (strcmp(label, wanted) != 0)
+				continue;
+			snprintf(path, sizeof(path), "/sys/class/gpio/%s/base", entry->d_name);
+			unsigned base = 0;
+			f = fopen(path, "r");
+			if (f != NULL) {
+				if (fscanf(f, "%u", &base) != 1)
+					base = 0;
+				fclose(f);
+			}
+			closedir(dir);
+			return base;
+		}
+		closedir(dir);
+	}
+	// No chip claimed the range: the numbering is the SoC's own.
+	return 32 * bank_idx;
 }
 
 /* fill the 4 gpio_banks with values and
@@ -120,7 +167,7 @@ gpio_config_t *gpios_c::config(const char *name, int direction, unsigned bank_id
     result->bank = &(banks[bank_idx]);
     result->bank->gpios_in_use++;
     result->pin_in_bank = pin_in_bank;
-    result->linear_no = 32 * bank_idx + pin_in_bank;
+    result->linear_no = sysfs_gpio_base(bank_idx) + pin_in_bank;
     result->pin_in_bank_mask = 1 << pin_in_bank;
 
     return result;

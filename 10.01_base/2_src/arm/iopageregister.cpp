@@ -31,6 +31,7 @@
 #include <assert.h>
 
 #include "pru.hpp"
+#include "pru_backend.hpp"
 
 #include "qunibus.h"
 #include "iopageregister.h"
@@ -43,8 +44,8 @@ int iopageregisters_connect(void)
 {
 	void *pru_shared_dataram;
 	// get pointer to RAM
-	if (prussdrv_map_prumem(PRU_DEVICEREGISTER_RAM_ID, &pru_shared_dataram)) {
-		fprintf(stderr, "prussdrv_map_prumem() failed\n");
+	pru_shared_dataram = pru_backend->map_ram(PRU_DEVICEREGISTER_RAM_ID);
+	if (pru_shared_dataram == NULL) {
 		return -1;
 
 	}

@@ -62,7 +62,7 @@
 #include "logger.hpp"
 #include "mailbox.h"
 #include "gpios.hpp"
-#include "prussdrv.h"
+#include "pru_backend.hpp"
 #include "pruss_intc_mapping.h"
 #include "iopageregister.h"
 #include "priorityrequest.hpp"
@@ -1142,7 +1142,7 @@ void qunibusadapter_c::worker(unsigned instance)
     bool any_event;
 
     // set thread priority to MAX.
-    // - fastest response to select() call in prussdrv_pru_wait_event_timeout()
+    // - fastest response to the backend's event wait
     //  (minimal I/O latency)
     // - not interrupted by other tasks while running
     // check with tool "top" or "htop".
@@ -1165,15 +1165,15 @@ void qunibusadapter_c::worker(unsigned instance)
 
         // main loop
         // wait 0.1 sec, just tell
-        /* The prussdrv_pru_wait_event() function returns the number of times
+        /* wait_event() returns the number of times
          the event has taken place, as an unsigned int. There is no out-of-
          band value to indicate error (and it can wrap around to 0 if you
          run the program just a whole lot of times). */
-        res = prussdrv_pru_wait_event_timeout(PRU_EVTOUT_0, 100000/*us*/);
+        res = pru_backend->wait_event(100000/*us*/);
 //res = prussdrv_pru_wait_event(PRU_EVTOUT_0);
         // PRU may have raised more than one event before signal is accepted.
         // single combination of only INIT+DATI/O possible
-        prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT);
+        pru_backend->clear_event();
         // uses select() internally: 0 = timeout, -1 = error, else event count received
         any_event = true;
         // at startup sequence, mailbox may be not yet valid

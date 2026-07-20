@@ -35,6 +35,7 @@
 #include <string.h>
 
 #include "logger.hpp"
+#include "gpios.hpp"
 #include "timeout.hpp"
 #include "qunibusadapter.hpp"
 #include "qunibusdevice.hpp"	// definition of class device_c
@@ -70,28 +71,15 @@ demo_io_c::demo_io_c() :
 	display_reg->reset_value = 0;
 	display_reg->writable_bits = 0x000f; // not necessary
 
-	// map register bits to gpio pins
-	//       BBB     ARM       /sys/class/gpio
-	// LED0: P8.25 = GPIO1_0  = 32
-	// LED1: P8.24 = GPIO1_1  = 33
-	// LED2: P8.05 = GPIO1_2  = 34
-	// LED3: P8.06 = GPIO1_3  = 35
-	// SW0:  P8.23 = GPIO1_4  = 36
-	// SW1:  P8.22 = GPIO1_5  = 37
-	// SW2:  P8.03 = GPIO1_6  = 38
-	// SW3:  P8.04 = GPIO1_7  = 39
-	// BTN:  P8.12 = GPIO1_12 = 44
+	// map register bits to gpio pins. The sysfs numbers come from gpios,
+	// which reads them from the chips: the base moved from 0 to 512, so
+	// LED0 on P8.25 = GPIO1_0 is 544 rather than 32.
+	for (unsigned i = 0; i < 4; i++)
+		gpio_open(gpio_outputs[i], false, gpios->led[i]->linear_no);
 
-	gpio_open(gpio_outputs[0], false, 32); // LED 0
-	gpio_open(gpio_outputs[1], false, 33); // LED 1
-	gpio_open(gpio_outputs[2], false, 34); // LED 2
-	gpio_open(gpio_outputs[3], false, 35); // LED 3
-
-	gpio_open(gpio_inputs[0], true, 36); // SW0
-	gpio_open(gpio_inputs[1], true, 37); // SW1
-	gpio_open(gpio_inputs[2], true, 38); // SW2
-	gpio_open(gpio_inputs[3], true, 39); // SW3
-	gpio_open(gpio_inputs[4], true, 44); // BUTTON
+	for (unsigned i = 0; i < 4; i++)
+		gpio_open(gpio_inputs[i], true, gpios->swtch[i]->linear_no);
+	gpio_open(gpio_inputs[4], true, gpios->button->linear_no);
 }
 
 demo_io_c::~demo_io_c() 

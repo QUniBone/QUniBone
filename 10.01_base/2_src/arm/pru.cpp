@@ -49,7 +49,7 @@
 
 #include "utils.hpp"
 #include "logger.hpp"
-#include "prussdrv.h"
+#include "pru_backend.hpp"
 #include "pruss_intc_mapping.h"
 #include "mailbox.h"
 #include "ddrmem.h"
@@ -76,11 +76,16 @@
 //  under c++ linker error with const attribute ?!
 #define const
 #include "pru0_code_all_array.c"
+// the same firmware as an ELF file, for the backend that loads one
+#include "pru0_code_all_elf.c"
 #include "pru1_code_test_array.c"
+#include "pru1_code_test_elf.c"
 #if defined(UNIBUS)
 #include "pru1_code_unibus_array.c"
+#include "pru1_code_unibus_elf.c"
 #elif defined(QBUS)
 #include "pru1_code_qbus_array.c"
+#include "pru1_code_qbus_elf.c"
 #endif
 #undef const
 
@@ -110,10 +115,15 @@ struct prucode_entry {
 	uint32_t *pru0_code_array;
 	unsigned pru0_code_array_sizeof;
 	uint32_t pru0_entry;
+	// the same firmware as an ELF, which remoteproc loads instead
+	const uint8_t *pru0_elf;
+	unsigned pru0_elf_size;
 	// smame for PRU1
 	uint32_t *pru1_code_array;
 	unsigned pru1_code_array_sizeof;
 	uint32_t pru1_entry;
+	const uint8_t *pru1_elf;
+	unsigned pru1_elf_size;
 	// properties required for certain functions
 };
 
@@ -122,15 +132,20 @@ struct prucode_entry prucode[] = {
 // self test functions
 		{ pru_c::PRUCODE_TEST, //
 				pru0_code_all_image_0, sizeof(pru0_code_all_image_0), PRU0_ENTRY_ADDR, //
-				pru1_code_test_image_0, sizeof(pru1_code_test_image_0), PRU1_ENTRY_ADDR //
+				pru0_code_all_elf, sizeof(pru0_code_all_elf), //
+				pru1_code_test_image_0, sizeof(pru1_code_test_image_0), PRU1_ENTRY_ADDR, //
+				pru1_code_test_elf, sizeof(pru1_code_test_elf) //
 		},//
 		  // full bus protocols for QBUS/UNIBUS device emulation
 		{ pru_c::PRUCODE_EMULATION, //
 				pru0_code_all_image_0, sizeof(pru0_code_all_image_0), PRU0_ENTRY_ADDR, //
+				pru0_code_all_elf, sizeof(pru0_code_all_elf), //
 #if defined(UNIBUS)				
-		pru1_code_unibus_image_0, sizeof(pru1_code_unibus_image_0), PRU1_ENTRY_ADDR //
+		pru1_code_unibus_image_0, sizeof(pru1_code_unibus_image_0), PRU1_ENTRY_ADDR, //
+		pru1_code_unibus_elf, sizeof(pru1_code_unibus_elf) //
 #elif defined(QBUS)				
-		pru1_code_qbus_image_0, sizeof(pru1_code_qbus_image_0), PRU1_ENTRY_ADDR //
+		pru1_code_qbus_image_0, sizeof(pru1_code_qbus_image_0), PRU1_ENTRY_ADDR, //
+		pru1_code_qbus_elf, sizeof(pru1_code_qbus_elf) //
 #endif		
 	}, //
 	   // end marker
@@ -140,40 +155,35 @@ int pru_c::start(enum prucode_enum _prucode_id)
 {
 	timeout_c timeout;
 	int rtn;
-	tpruss_intc_initdata intc = PRUSS_INTC_INITDATA;
 
 	// use stop() before restart()
 	assert(this->prucode_id == PRUCODE_NONE);
 
-	/* initialize PRU */
-	if ((rtn = prussdrv_init()) != 0) {
-		ERROR("prussdrv_init() failed");
+	/* claim the PRU subsystem through whichever interface the kernel offers */
+	if (!pru_backend_select()) {
+		ERROR("no way to reach the PRUs: neither uio_pruss nor remoteproc");
+		rtn = -1;
 		goto error;
 	}
-
-	/* open the interrupt */
-	if ((rtn = prussdrv_open(PRU_EVTOUT_0)) != 0) {
-		ERROR("prussdrv_open() failed");
-		goto error;
-	}
-
-	/* initialize interrupt */
-	if ((rtn = prussdrv_pruintc_init(&intc)) != 0) {
-		ERROR("prussdrv_pruintc_init() failed");
-		goto error;
-	}
+	INFO("PRUs reached through %s", pru_backend->name());
 
 	/*
 	 http://credentiality2.blogspot.com/2015/09/beaglebone-pru-ddr-memory-access.html
 	 * get pointer to shared DDR
 	 */
-	// Pointer into the DDR RAM mapped by the uio_pruss kernel module.
-	ddrmem->base_virtual = NULL;
-	prussdrv_map_extmem((void **) &(ddrmem->base_virtual));
-	ddrmem->len = prussdrv_extmem_size();
-//	INFO("Shared DDR memory: %u bytes available.", ddrmem.len);
-
-	ddrmem->base_physical = prussdrv_get_phys_addr((void *) (ddrmem->base_virtual));
+	// The host memory the PRUs use as the emulated machine's memory.
+	{
+		void *virt = NULL;
+		size_t len = 0;
+		uint32_t phys = 0;
+		if (!pru_backend->map_host_memory(&virt, &len, &phys)) {
+			rtn = -1;
+			goto error;
+		}
+		ddrmem->base_virtual = (ddrmem_t *) virt;
+		ddrmem->len = len;
+		ddrmem->base_physical = phys;
+	}
 	ddrmem->info(); // may abort program
 
 	// get address of mail box struct in PRU
@@ -195,18 +205,18 @@ int pru_c::start(enum prucode_enum _prucode_id)
 	if (pce->pru0_code_array_sizeof > PRUSS_MAX_IRAM_SIZE) {
 		FATAL("PRU0 code too large. Closing program");
 	}
-	if ((rtn = prussdrv_exec_code_at(0, pce->pru0_code_array, pce->pru0_code_array_sizeof,
-			pce->pru0_entry)) != 0) {
-		FATAL("prussdrv_exec_program(PRU0) failed");
+	if (!pru_backend->load_and_start(0, pce->pru0_code_array, pce->pru0_code_array_sizeof,
+			pce->pru0_elf, pce->pru0_elf_size, pce->pru0_entry)) {
+		FATAL("could not start PRU0");
 		goto error;
 	}
 
 	if (pce->pru1_code_array_sizeof > PRUSS_MAX_IRAM_SIZE) {
 		FATAL("PRU1 code too large.");
 	}
-	if ((rtn = prussdrv_exec_code_at(1, pce->pru1_code_array, pce->pru1_code_array_sizeof,
-			pce->pru1_entry)) != 0) {
-		FATAL("prussdrv_exec_program(PRU1) failed");
+	if (!pru_backend->load_and_start(1, pce->pru1_code_array, pce->pru1_code_array_sizeof,
+			pce->pru1_elf, pce->pru1_elf_size, pce->pru1_entry)) {
+		FATAL("could not start PRU1");
 	}
 	INFO("Loaded and started PRU code with id = %d", _prucode_id);
 
@@ -234,7 +244,7 @@ int pru_c::start(enum prucode_enum _prucode_id)
 
 /***  pru_c::stop() -- halt PRU and release driver
 
- Performs all necessary de-initialization tasks for the prussdrv library.
+ Halts both PRUs and releases the interface they were reached through.
 
  Returns 0 on success, non-0 on error.
  ***/
@@ -243,28 +253,13 @@ int pru_c::stop(void)
 	int rtn = 0;
 	prucode_id = PRUCODE_NONE;
 
-	/* clear the event (if asserted) */
-	if (prussdrv_pru_clear_event(PRU_EVTOUT_0, PRU0_ARM_INTERRUPT)) {
-		ERROR("prussdrv_pru_clear_event() failed");
-		rtn = -1;
-	}
+	if (pru_backend == NULL)
+		return rtn; // never started
 
-	/* halt and disable the PRU (if running) */
-	if ((rtn = prussdrv_pru_disable(0)) != 0) {
-		ERROR("prussdrv_pru_disable(0) failed");
-		rtn = -1;
-	}
-
-	if ((rtn = prussdrv_pru_disable(1)) != 0) {
-		ERROR("prussdrv_pru_disable(1) failed");
-		rtn = -1;
-	}
-
-	/* release the PRU clocks and disable prussdrv module */
-	if ((rtn = prussdrv_exit()) != 0) {
-		ERROR("prussdrv_exit() failed");
-		rtn = -1;
-	}
+	pru_backend->clear_event();
+	pru_backend->halt(0);
+	pru_backend->halt(1);
+	pru_backend->close();
 
 	return rtn;
 }

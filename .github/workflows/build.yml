@@ -1,0 +1,93 @@
+name: build
+
+# Builds the emulator and the qbone package from nothing but this repository.
+# The PRU firmware is compiled here too (crossbuild.sh fetches the TI code
+# generation tools into a container), so no BeagleBone takes part.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: QBUS
+            flag: ''
+            suffix: _q
+          - platform: UNIBUS
+            flag: '-u'
+            suffix: _u
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev device-tree-compiler
+
+      - name: Cross-compile ${{ matrix.platform }}
+        run: ./crossbuild.sh ${{ matrix.flag }}
+
+      - name: Check the PRU firmware is reproducible
+        # A second build from clean must land on the same instruction words.
+        # The bus state machine's timing is what clpru's output decides, so a
+        # firmware that varies between builds is not a firmware to ship.
+        run: |
+          mkdir -p /tmp/fw1
+          cp 10.01_base/4_deploy${{ matrix.suffix }}/*_array.c /tmp/fw1/
+          ./crossbuild.sh ${{ matrix.flag }} -p
+          for f in /tmp/fw1/*_array.c; do
+            cmp "$f" "10.01_base/4_deploy${{ matrix.suffix }}/$(basename "$f")"
+          done
+          echo "PRU firmware reproducible"
+
+      - name: Build the package
+        run: ./packaging/build-deb.sh ${{ matrix.flag }}
+
+      - name: Check the package installs cleanly
+        run: |
+          deb=$(ls qbone_*_armhf.deb)
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          # lintian-style sanity: the maintainer scripts must at least parse
+          dpkg-deb --control "$deb" /tmp/ctrl
+          for s in postinst prerm postrm; do sh -n "/tmp/ctrl/$s"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qbone-${{ matrix.platform }}
+          path: qbone_*_armhf.deb
+
+  publish:
+    # Tags only, and only once a repository token is configured. Without the
+    # secret the job is skipped, so a fork or an unconfigured checkout builds
+    # and tests without trying to publish anything.
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: qbone-QBUS
+
+      - name: Upload to the Debian registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          REGISTRY_URL: ${{ vars.DEBIAN_REGISTRY_URL }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ] || [ -z "$REGISTRY_URL" ]; then
+            echo "no registry configured - set the FORGEJO_TOKEN secret and the"
+            echo "DEBIAN_REGISTRY_URL variable to publish; skipping."
+            exit 0
+          fi
+          deb=$(ls qbone_*_armhf.deb)
+          curl --fail-with-body -H "Authorization: token $REGISTRY_TOKEN" \
+              --upload-file "$deb" \
+              "$REGISTRY_URL/pool/trixie/main/upload"
