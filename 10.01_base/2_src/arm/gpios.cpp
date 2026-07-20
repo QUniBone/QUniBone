@@ -277,6 +277,8 @@ void gpios_c::init()
 #elif defined(QBUS)
     set_frequency(0) ; // switch off for now, FPGA generates LTC
 #endif
+
+    initialized = true ; // the pin table is complete: LEDs may be driven
 }
 
 
@@ -412,6 +414,13 @@ void activity_led_c::waiter_func()
     while (!waiter_terminated) {
         // polling frequency
         std::this_thread::sleep_for(std::chrono::milliseconds(cycle_time_ms));
+        // This thread is started by the constructor of the activity_led_c
+        // member of gpios_c, so it is already running while gpios_c is being
+        // constructed: the global "gpios" is still null and the pin table is
+        // empty until init() has run. Touching a LED before that dereferences
+        // a null pin.
+        if (gpios == nullptr || !gpios->initialized)
+            continue;
         for (unsigned led_idx=0 ; led_idx < led_count ; led_idx++) {
             if (cycles[led_idx]) {
                 const std::lock_guard<std::mutex> lock(m); // cycles[]

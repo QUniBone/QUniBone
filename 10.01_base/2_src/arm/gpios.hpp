@@ -133,6 +133,11 @@ typedef struct {
 
 
 class gpios_c: public logsource_c {
+public:
+    // true once init() has filled the pin table. The activity LED thread runs
+    // from the moment gpios_c is constructed, which is before the global
+    // "gpios" points at it and before the pins exist, so it waits for this.
+    volatile bool initialized = false;
 private:
     int memory_filedescriptor;
 
