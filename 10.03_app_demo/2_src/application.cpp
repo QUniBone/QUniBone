@@ -433,7 +433,7 @@ int application_c::run(int argc, char *argv[])
 
 /* construct all singletons in proper order
  */
-static void factory() 
+void qunibone_factory() 
 {
     // logger first, all logsource_c connect to it.
     logger = new logger_c();
@@ -457,13 +457,4 @@ static void factory()
     app = new application_c();
 }
 
-int main(int argc, char *argv[]) 
-{
-    // flush stuff on stdin. (Eclipse remote debugging)
-    while (os_kbhit())
-        ;
-
-    factory();
-    return app->run(argc, argv);
-}
 

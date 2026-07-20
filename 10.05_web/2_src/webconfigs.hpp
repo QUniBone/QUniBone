@@ -25,6 +25,14 @@ struct config_image_use_t {
 	std::string device;
 };
 
+// Apply a saved configuration to the device set, as the apply endpoint does.
+// False when the configuration cannot be read, with the reason in "error";
+// parameters the devices reject are collected in "rejections" and do not fail
+// the call. The web server must be started first: registering it is what finds
+// the configuration directory and captures the parameter defaults.
+bool webconfigs_apply(const std::string &name, std::vector<std::string> *rejections,
+		std::string *error);
+
 // every configuration/drive pair that names this image file
 std::vector<config_image_use_t> webconfigs_image_uses(const std::string &image_name);
 

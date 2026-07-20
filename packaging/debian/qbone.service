@@ -8,8 +8,12 @@ Requires=qbone-network.service
 Type=simple
 Environment=QUNIBONE_DIR=/var/lib/qbone
 WorkingDirectory=/var/lib/qbone
-ExecStart=/usr/bin/qbone --web 80 --webroot /usr/share/qbone/frontend \
-    --addresswidth 22 --cmdfile /etc/qbone/startup.cmd
+# The machine the board comes up as is a saved configuration: add
+# "--config <name>" to apply one at startup, e.g. to give the DELQA the host
+# interface it bridges through. Configurations are saved from the web
+# interface and live in /var/lib/qbone/configs.
+ExecStart=/usr/bin/qbone --port 80 --webroot /usr/share/qbone/frontend \
+    --addresswidth 22
 # The bus engine runs at realtime priority and the PRU driver wants physical
 # memory, so this stays privileged.
 LimitRTPRIO=99

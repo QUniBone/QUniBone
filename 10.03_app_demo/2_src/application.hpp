@@ -119,6 +119,9 @@ public:
 
 extern application_c *app;	// Singleton
 
+// construct the singletons every program built on this code needs
+void qunibone_factory(void);
+
 
 #endif
 

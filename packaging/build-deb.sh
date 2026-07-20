@@ -1,9 +1,11 @@
 #!/bin/bash
 # Build the qbone Debian package from an already cross-compiled binary.
 #
-# The executable is called "demo" in the source tree and "qbone" once
-# installed; the rename happens here so the tree stays mergeable with
-# upstream.
+# Two programs are installed. "qbone-web" in the source tree becomes
+# /usr/bin/qbone, the service the unit runs: it serves the web interface and
+# has no menu. "demo" becomes /usr/bin/qbone-demo, the interactive tool for
+# bus latches, master/slave tests and the device exercisers. The renames
+# happen here so the tree stays mergeable with upstream.
 #
 # The binary is statically linked and carries the PRU firmware inside it, so
 # the package depends on nothing and the staging tree is small. dpkg-deb runs
@@ -46,9 +48,10 @@ while getopts "u" opt; do
     esac
 done
 
-BINARY=10.03_app_demo/4_deploy$SUFFIX/demo
-if [ ! -x $BINARY ]; then
-    echo "no binary at $BINARY - run ./crossbuild.sh first" >&2
+BINARY=10.03_app_demo/4_deploy$SUFFIX/qbone-web
+BINARY_DEMO=10.03_app_demo/4_deploy$SUFFIX/demo
+if [ ! -x $BINARY ] || [ ! -x $BINARY_DEMO ]; then
+    echo "no binary at $BINARY / $BINARY_DEMO - run ./crossbuild.sh first" >&2
     exit 1
 fi
 
@@ -73,6 +76,7 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/var/lib/qbone/configs
 
 install -m 755 $BINARY $STAGE/usr/bin/qbone
+install -m 755 $BINARY_DEMO $STAGE/usr/bin/qbone-demo
 install -m 644 10.05_web/3_frontend/index.html $STAGE/usr/share/qbone/frontend/
 install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/qbone/frontend/vendor/
 # favicons and the PWA manifest, served from the web root beside index.html

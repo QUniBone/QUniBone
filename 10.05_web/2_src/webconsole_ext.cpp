@@ -33,6 +33,7 @@
 #include "dl11w.hpp"
 #include "device_configuration.hpp"
 
+#include "weblog.hpp"
 #include "webconsole_ext.hpp"
 
 static std::mutex port_mutex; // guards port_io + cur_* + port_open
@@ -100,15 +101,15 @@ std::string webconsole_ext_configure(const std::string &source,
 		return "";
 	std::string conflict = console_conflict(cur_port);
 	if (!conflict.empty()) {
-		printf("\nweb: external console: %s\n", conflict.c_str());
+		WEB_INFO("external console: %s", conflict.c_str());
 		return conflict;
 	}
 	if (port_io.OpenComport(cur_port.c_str(), (int) cur_baud, "8N1", false)) {
 		std::string reason = "cannot open /dev/" + cur_port;
-		printf("\nweb: external console: %s\n", reason.c_str());
+		WEB_INFO("external console: %s", reason.c_str());
 		return reason;
 	}
-	printf("\nweb: external console on /dev/%s at %u baud\n", cur_port.c_str(), cur_baud);
+	WEB_INFO("external console on /dev/%s at %u baud", cur_port.c_str(), cur_baud);
 	port_open = true;
 	return "";
 }

@@ -36,6 +36,7 @@
 #include "qunibus.h"
 #include "device_configuration.hpp"
 
+#include "weblog.hpp"
 #include "webauth.hpp"
 #include "webevents.hpp"
 #include "webconsole_ext.hpp"
@@ -184,7 +185,7 @@ static void settings_put(struct mg_connection *conn) {
 		} else {
 			std::lock_guard<std::mutex> ops(device_configuration_c::operations_mutex);
 			qunibus->set_addr_width(w);
-			printf("\nweb: address width %u\n", w);
+			WEB_INFO("address width %u", w);
 		}
 	}
 

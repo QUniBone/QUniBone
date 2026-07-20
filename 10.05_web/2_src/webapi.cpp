@@ -32,6 +32,7 @@
 #include "mscp_server.hpp"
 #include "device_configuration.hpp"
 
+#include "weblog.hpp"
 #include "webevents.hpp"
 #include "webconsole.hpp"
 #include "webconsole_ext.hpp"
@@ -219,7 +220,7 @@ static void device_param_set(struct mg_connection *conn, const std::string &devn
 					for (storagedrive_c *drv : ctrl->storagedrives)
 						if (drv != nullptr && drv->enabled.value) {
 							drv->enabled.set(false);
-							printf("\nweb: %s disabled with controller %s\n",
+							WEB_INFO("%s disabled with controller %s",
 									drv->name.value.c_str(), dev->name.value.c_str());
 						}
 			} else {
@@ -237,10 +238,10 @@ static void device_param_set(struct mg_connection *conn, const std::string &devn
 				param->parse(value);
 			}
 			// keep the terminal user informed, like an echoed command
-			printf("\nweb: %s.%s = %s\n", dev->name.value.c_str(),
+			WEB_INFO("%s.%s = %s", dev->name.value.c_str(),
 					param->name.c_str(), value.c_str());
 		} catch (bad_parameter &e) {
-			printf("\nweb: %s.%s = %s rejected: %s\n", dev->name.value.c_str(),
+			WEB_INFO("%s.%s = %s rejected: %s", dev->name.value.c_str(),
 					param->name.c_str(), value.c_str(), e.what());
 			send_error(conn, 422, e.what());
 			return;
@@ -320,7 +321,7 @@ static int api_control_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			send_error(conn, 400, "unknown action \"" + action + "\"");
 			return 400;
 		}
-		printf("\nweb: control %s\n", action.c_str());
+		WEB_INFO("control %s", action.c_str());
 	}
 	picojson::object res;
 	res["ok"] = picojson::value(true);

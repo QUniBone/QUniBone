@@ -59,6 +59,7 @@
 #include "mscp_server.hpp"
 #include "device_configuration.hpp"
 
+#include "weblog.hpp"
 #include "webconfigs.hpp"
 #include "webstorage.hpp"
 
@@ -343,7 +344,7 @@ static void config_save(struct mg_connection *conn, const std::string &name) {
 	}
 	out << body;
 	out.close();
-	printf("\nweb: configuration \"%s\" saved\n", name.c_str());
+	WEB_INFO("configuration \"%s\" saved", name.c_str());
 	picojson::object res;
 	res["ok"] = picojson::value(true);
 	send_json(conn, 200, picojson::value(res));
@@ -423,7 +424,7 @@ static void config_set_image(struct mg_connection *conn, const std::string &name
 	}
 	out << content.serialize();
 	out.close();
-	printf("\nweb: configuration \"%s\": %s image = %s\n", name.c_str(),
+	WEB_INFO("configuration \"%s\": %s image = %s", name.c_str(),
 			devname.c_str(), path.empty() ? "none" : path.c_str());
 	picojson::object res;
 	res["ok"] = picojson::value(true);
@@ -434,18 +435,19 @@ static void config_set_image(struct mg_connection *conn, const std::string &name
 // POST /api/configs/<name>/apply — restore a snapshot. Devices are stored
 // in registry order (controllers before their drives), so applying in
 // order enables controllers first. Rejections are collected, not fatal.
-static void config_apply(struct mg_connection *conn, const std::string &name) {
+// Apply a saved configuration to the device set: the work behind both
+// POST /api/configs/<name>/apply and the --config option of the service.
+// Returns false when the configuration cannot be read; parameters the devices
+// reject are collected in "errors" and do not fail the call.
+static bool apply_config(const std::string &name, picojson::array *errors,
+		std::string *error) {
 	picojson::value content;
-	std::string err;
-	if (!read_config(name, &content, &err)) {
-		send_error(conn, 404, err);
-		return;
-	}
+	if (!read_config(name, &content, error))
+		return false;
 	if (!content.get("devices").is<picojson::array>()) {
-		send_error(conn, 422, "configuration has no devices");
-		return;
+		*error = "configuration \"" + name + "\" has no devices";
+		return false;
 	}
-	picojson::array errors;
 	{
 		std::lock_guard<std::mutex> ops_lock(device_configuration_c::operations_mutex);
 
@@ -473,7 +475,7 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 					continue;
 				if (dev->enabled.value)
 					dev->enabled.set(false);
-				reset_to_defaults(dev, nullptr, &errors);
+				reset_to_defaults(dev, nullptr, errors);
 			}
 		}
 
@@ -492,7 +494,7 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 					}
 			}
 			if (dev == nullptr) {
-				errors.push_back(picojson::value(devname + ": unknown device"));
+				errors->push_back(picojson::value(devname + ": unknown device"));
 				continue;
 			}
 			// parameters the file omits are at their defaults too
@@ -501,7 +503,7 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 				for (const std::pair<const std::string, picojson::value> &kv :
 						d.get("params").get<picojson::object>())
 					listed.insert(kv.first);
-			reset_to_defaults(dev, &listed, &errors);
+			reset_to_defaults(dev, &listed, errors);
 
 			if (d.get("params").is<picojson::object>())
 				for (const std::pair<const std::string, picojson::value> &kv :
@@ -516,7 +518,7 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 					try {
 						param->parse(kv.second.get<std::string>());
 					} catch (bad_parameter &e) {
-						errors.push_back(picojson::value(
+						errors->push_back(picojson::value(
 								devname + "." + kv.first + ": " + e.what()));
 					}
 				}
@@ -524,12 +526,34 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 				dev->enabled.set(d.get("enabled").get<bool>());
 		}
 	}
-	printf("\nweb: configuration \"%s\" applied, %u rejections\n",
-			name.c_str(), (unsigned) errors.size());
+	WEB_INFO("configuration \"%s\" applied, %u rejections",
+			name.c_str(), (unsigned) errors->size());
+	return true;
+}
+
+// POST /api/configs/<name>/apply
+static void config_apply(struct mg_connection *conn, const std::string &name) {
+	picojson::array errors;
+	std::string error;
+	if (!apply_config(name, &errors, &error)) {
+		send_error(conn, 404, error);
+		return;
+	}
 	picojson::object res;
 	res["ok"] = picojson::value(errors.empty());
 	res["errors"] = picojson::value(errors);
 	send_json(conn, 200, picojson::value(res));
+}
+
+bool webconfigs_apply(const std::string &name, std::vector<std::string> *rejections,
+		std::string *error) {
+	picojson::array errors;
+	if (!apply_config(name, &errors, error))
+		return false;
+	if (rejections != nullptr)
+		for (picojson::value &e : errors)
+			rejections->push_back(e.is<std::string>() ? e.get<std::string>() : "?");
+	return true;
 }
 
 // /api/configs, /api/configs/<name>, /api/configs/<name>/apply
@@ -607,7 +631,7 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			send_error(conn, 404, "unknown configuration \"" + name + "\"");
 			return 404;
 		}
-		printf("\nweb: configuration \"%s\" deleted\n", name.c_str());
+		WEB_INFO("configuration \"%s\" deleted", name.c_str());
 		picojson::object res;
 		res["ok"] = picojson::value(true);
 		send_json(conn, 200, picojson::value(res));

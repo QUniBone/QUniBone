@@ -32,6 +32,7 @@
 #include "device.hpp"
 #include "storagedrive.hpp"
 
+#include "weblog.hpp"
 #include "webstorage.hpp"
 #include "webconfigs.hpp"
 
@@ -192,7 +193,7 @@ static void images_upload(struct mg_connection *conn) {
 		send_error(conn, 400, "no file in upload");
 		return;
 	}
-	printf("\nweb: image %s uploaded\n", state.name.c_str());
+	WEB_INFO("image %s uploaded", state.name.c_str());
 	picojson::object res;
 	res["ok"] = picojson::value(true);
 	res["name"] = picojson::value(state.name);
@@ -253,7 +254,7 @@ static int api_images_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			send_error(conn, 500, "cannot delete image \"" + name + "\"");
 			return 500;
 		}
-		printf("\nweb: image %s deleted\n", name.c_str());
+		WEB_INFO("image %s deleted", name.c_str());
 		picojson::object res;
 		res["ok"] = picojson::value(true);
 		send_json(conn, 200, picojson::value(res));

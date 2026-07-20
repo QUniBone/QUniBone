@@ -1,0 +1,174 @@
+/* main_qbone_web.cpp: the QBone as a service, driven only by its web interface
+
+ Copyright (c) 2026, Hans Huebner
+ hans@huebner.org
+ MIT license.
+
+ This program brings the hardware up, constructs the emulated device set, serves
+ the web interface, and then waits to be stopped. It has no menu and reads
+ nothing from stdin, which is what a unit under systemd needs: the terminal
+ menus of "demo" have no operator there, and their output belongs to a person,
+ not to a log.
+
+ Everything an operator does goes through the web interface, and everything
+ worth knowing afterwards goes to the log at INFO or above, so the journal
+ carries the run: what was configured, what was enabled, what failed.
+ */
+
+#include <errno.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <string>
+
+#include "logger.hpp"
+#include "gpios.hpp"
+#include "buslatches.hpp"
+#include "pru.hpp"
+#include "qunibus.h"
+#include "application.hpp"
+#include "webserver.hpp"
+#include "weblog.hpp"
+#include "webconfigs.hpp"
+
+static volatile sig_atomic_t terminate_requested = 0;
+
+static void on_terminate_signal(int signum)
+{
+	terminate_requested = signum;
+}
+
+// The document root holds the frontend. Named on the command line by a package
+// that installs it; otherwise it sits beside the source tree.
+static std::string resolve_docroot(const std::string &opt_root)
+{
+	if (!opt_root.empty())
+		return opt_root;
+	const char *root = getenv("QUNIBONE_DIR");
+	if (root == nullptr)
+		root = getenv("HOME");
+	return std::string(root ? root : ".") + "/10.05_web/3_frontend";
+}
+
+static void usage(const char *progname)
+{
+	printf("%s - QBone " QUNIBUS_NAME " emulator, served over its web interface\n\n", progname);
+	printf("usage: %s [options]\n", progname);
+	printf("  --port <n>          TCP port of the web interface (default 80)\n");
+	printf("  --webroot <dir>     directory holding the frontend\n");
+	printf("  --addresswidth <n>  " QUNIBUS_NAME " address width: 16, 18 or 22\n");
+	printf("  --config <name>     saved configuration to apply at startup\n");
+	printf("  --loglevel <n>      %d fatal, %d error, %d warning, %d info (default), %d debug\n",
+			LL_FATAL, LL_ERROR, LL_WARNING, LL_INFO, LL_DEBUG);
+	printf("  --help              this text\n");
+}
+
+int main(int argc, char *argv[])
+{
+	unsigned port = 80;
+	std::string webroot;
+	unsigned addresswidth = 22; // QBUS default of this cape
+	unsigned loglevel = LL_INFO;
+	std::string startup_config;
+
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--port") && i + 1 < argc)
+			port = strtoul(argv[++i], nullptr, 10);
+		else if (!strcmp(argv[i], "--webroot") && i + 1 < argc)
+			webroot = argv[++i];
+		else if (!strcmp(argv[i], "--addresswidth") && i + 1 < argc)
+			addresswidth = strtoul(argv[++i], nullptr, 10);
+		else if (!strcmp(argv[i], "--loglevel") && i + 1 < argc)
+			loglevel = strtoul(argv[++i], nullptr, 10);
+		else if (!strcmp(argv[i], "--config") && i + 1 < argc)
+			startup_config = argv[++i];
+		else if (!strcmp(argv[i], "--help")) {
+			usage(argv[0]);
+			return 0;
+		} else {
+			fprintf(stderr, "%s: unknown option \"%s\"\n", argv[0], argv[i]);
+			usage(argv[0]);
+			return 2;
+		}
+	}
+
+	qunibone_factory();
+
+	// A service reports what it did, so the run can be read back from the
+	// journal afterwards. The menu program leaves this at warnings, where the
+	// operator sees everything on screen as it happens anyway.
+	logger->default_level = loglevel;
+	logger->life_level = loglevel;
+	logger->reset_log_levels();
+
+	// systemd stops a unit with SIGTERM; answering it is what makes the stop
+	// clean instead of a kill, so the device set is shut down in order.
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = on_terminate_signal;
+	sigaction(SIGTERM, &sa, nullptr);
+	sigaction(SIGINT, &sa, nullptr);
+
+	WEB_INFO("QBone web service starting, " QUNIBUS_NAME " emulation.");
+
+	// The address width decides the layout of the IO page, so the emulation
+	// needs it before the PRU is started.
+	if (addresswidth != 16 && addresswidth != 18 && addresswidth != 22) {
+		WEB_ERROR("Address width must be 16, 18 or 22 bits, not %u.", addresswidth);
+		return 2;
+	}
+	qunibus->set_addr_width(addresswidth);
+	WEB_INFO("Address width %u bit.", qunibus->addr_width);
+
+	gpios->init();
+	buslatches.output_enable(0); // DS8641 drivers off until the bus is ours
+	GPIO_SETVAL(gpios->reg_enable, 1); // leave SYSBOOT mode
+
+	// Brings the PRU up with the emulation code and constructs the device set,
+	// which lives for the process lifetime. This starts the hardware; the PRU
+	// must not be started separately.
+	app->devices_startup(/*with_emulated_CPU*/false);
+
+	std::string docroot = resolve_docroot(webroot);
+	webserver_c webserver(port, docroot);
+	if (!webserver.start()) {
+		WEB_ERROR("Web server failed to start on port %u, document root %s.", port,
+				docroot.c_str());
+		app->devices_shutdown();
+		return 1;
+	}
+
+	// The machine a board comes up as is a saved configuration, applied here.
+	// It is applied after the server has started, because registering the
+	// endpoints is what locates the configuration directory and captures the
+	// parameter defaults an apply resets to.
+	if (!startup_config.empty()) {
+		std::vector<std::string> rejections;
+		std::string error;
+		if (!webconfigs_apply(startup_config, &rejections, &error))
+			WEB_ERROR("Startup configuration \"%s\" not applied: %s",
+					startup_config.c_str(), error.c_str());
+		else {
+			for (const std::string &r : rejections)
+				WEB_WARNING("Startup configuration \"%s\": %s",
+						startup_config.c_str(), r.c_str());
+			WEB_INFO("Startup configuration \"%s\" applied, %u rejections.",
+					startup_config.c_str(), (unsigned) rejections.size());
+		}
+	}
+
+	WEB_INFO("QBone ready. Every operator action arrives through the web interface.");
+
+	// Nothing to do here: the web server serves on its own threads and the
+	// emulated devices run on theirs.
+	while (!terminate_requested)
+		pause();
+
+	WEB_INFO("Signal %d received, shutting down.", (int) terminate_requested);
+	webserver.stop();
+	app->devices_shutdown();
+	WEB_INFO("QBone web service stopped.");
+	return 0;
+}
