@@ -200,7 +200,15 @@ char *inputline_c::readline(char *buffer, int buffer_size, const char *prompt)
 		/*** read interactive ***/
 		if (prompt && *prompt)
 			printf("%s", prompt);
-		fgets(buffer, buffer_size, stdin);
+		if (fgets(buffer, buffer_size, stdin) == nullptr) {
+			// End of input: no operator is there. fgets() leaves the buffer
+			// untouched, so returning it would hand the caller the previous
+			// line again, and a menu reading to end of input would repeat that
+			// command for as long as the program runs.
+			buffer[0] = '\0';
+			eof = true;
+			return nullptr;
+		}
 		// remove terminating "\n"
 		for (s = buffer; *s; s++)
 			if (*s == '\n')

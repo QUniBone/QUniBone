@@ -95,7 +95,13 @@ char *application_c::getchoice(const char *menu_code)
     sprintf(prompt, "%s>>>", menu_code) ;
     do {
         printf("\n");
-        inputline.readline(s_choice, (int) sizeof(s_choice), prompt);
+        if (inputline.readline(s_choice, (int) sizeof(s_choice), prompt) == nullptr) {
+            // End of input: nobody will answer this prompt. Leave the menu as
+            // if quit had been typed, which unwinds to the main menu and ends
+            // the program, rather than looping on a line that never comes.
+            strcpy(s_choice, "q");
+            return s_choice;
+        }
         //char *s;
         // do {
         // s_choice[0] = '\0'; //  empty buffer.

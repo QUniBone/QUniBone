@@ -45,6 +45,11 @@ public:
 	bool open_file(char *filename);
 	bool is_file_open() ;
 
+	// set once stdin has reached end of input: no operator will answer another
+	// prompt, so a caller looping over readline() must stop
+	bool eof = false;
+
+	// the line read, or nullptr at end of input
 	char *readline(char *buffer, int buffer_size, const char *prompt);
 };
 
