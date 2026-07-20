@@ -16,16 +16,14 @@
 <script src="vendor/xterm.js"></script>
 
 <!--
-  QBone web interface — clickable mockup (static data, no backend).
+  QBone web interface. Everything on screen comes from the backend: the
+  device tree and its parameters over /api, hardware state and log lines
+  over the /ws/events stream, terminals over /ws/console.
 
   STYLING IS CENTRALIZED: the ":root { }" DESIGN TOKENS block below is the
   single source of truth for color, type, radius and shadow. Component rules
   reference tokens only — restyle the whole app by editing that one block,
   or point claude.ai/design at it to apply a design system.
-
-  Every interactive action shows a toast with the menu command the real
-  backend would inject through the demo application's command queue
-  (e.g. "en rl2", "p image games.rl02") — the mockup doubles as API doc.
 -->
 
 <style>
@@ -503,21 +501,6 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 /* ============================ configurations ============================ */
 .cfg-row { margin-bottom: 12px; }
 .cfg-row .card-head { flex-wrap: wrap; }
-.cfg-dip {
-  font-family: var(--font-mono); font-weight: 700; font-size: var(--fs-1);
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 3px 8px; color: var(--ink-muted);
-}
-.cfg-cmd {
-  display: none; border-top: 1px solid var(--line-soft);
-  margin: 0; padding: 12px 14px;
-  font-family: var(--font-mono); font-size: var(--fs-1); line-height: 1.6;
-  color: var(--ink-muted); background: var(--surface-2);
-  border-radius: 0 0 var(--r-md) var(--r-md);
-  overflow-x: auto;
-}
-.cfg-cmd.open { display: block; }
-.cfg-cmd .cm { color: var(--ink-faint); }
 /* the devices a configuration names, in the devices page's own language */
 .cfg-devs .dev-sub { border-top: 1px solid var(--line-soft); }
 .cfg-devs .params { padding-top: 0; }
@@ -645,6 +628,16 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
 }
 .pick-row:hover { border-color: var(--accent); background: var(--surface-2); }
 .pick-row .mono:first-child { flex: 1; }
+/* the medium the drive holds now, so the list opens on a known position */
+.pick-row.current { border-color: var(--accent); background: var(--surface-2); }
+
+/* the image parameter is chosen, not typed: a field that opens the picker */
+.imgfield {
+  font-size: var(--fs-1); text-align: left; cursor: pointer;
+  padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink); min-width: 16ch;
+}
+.imgfield:hover { border-color: var(--accent); background: var(--surface-2); }
 
 /* ============================ toasts ============================ */
 .toast-host {
@@ -690,8 +683,7 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="foot" id="foot">
-      demo v1.0 · QBUS 22-bit<br>
-      web ui mockup · static data
+      web interface
     </div>
   </aside>
 
@@ -700,8 +692,8 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
       <h1 id="page-title">Dashboard</h1>
       <span class="pill" id="pill-dcok"><span class="dot ok"></span>DCOK</span>
       <span class="pill" id="pill-pok"><span class="dot ok"></span>POK</span>
-      <span class="pill mono" id="pill-addrwidth">addr 22-bit</span>
-      <span class="pill" id="conn-pill"><span class="dot warn"></span>static data</span>
+      <span class="pill mono" id="pill-addrwidth">addr —</span>
+      <span class="pill" id="conn-pill"><span class="dot warn"></span>connecting…</span>
     </header>
 
     <main class="content">
@@ -727,12 +719,12 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
                   <span class="chip out" id="bus-init">init</span></div>
                 <div class="fp-row"><span class="fp-k">LEDs</span>
                   <span class="ledrow">
-                    <span class="led on" id="hw-led0"></span><span class="led" id="hw-led1"></span>
+                    <span class="led" id="hw-led0"></span><span class="led" id="hw-led1"></span>
                     <span class="led" id="hw-led2"></span><span class="led" id="hw-led3"></span>
                   </span></div>
                 <div class="fp-row"><span class="fp-k">DIP</span>
                   <span class="dipsw">
-                    <span class="dip on" id="hw-dip0"></span><span class="dip on" id="hw-dip1"></span><span class="dip" id="hw-dip2"></span><span class="dip" id="hw-dip3"></span>
+                    <span class="dip" id="hw-dip0"></span><span class="dip" id="hw-dip1"></span><span class="dip" id="hw-dip2"></span><span class="dip" id="hw-dip3"></span>
                   </span></div>
               </div>
             </div>
@@ -777,26 +769,9 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
           <div class="table-wrap">
             <table class="data" id="image-table">
               <thead>
-                <tr><th>Image</th><th class="num">Size</th><th>Attached to</th><th>Modified</th><th></th></tr>
+                <tr><th>Image</th><th class="num">Size</th><th>Used by</th><th>Modified</th><th></th></tr>
               </thead>
               <tbody></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card" style="margin-top:14px" id="shared-dirs-card">
-          <div class="card-head"><h3>Shared directories</h3></div>
-          <div class="table-wrap">
-            <table class="data">
-              <thead><tr><th>Drive</th><th>Host directory</th><th>Filesystem</th><th>Sync</th><th></th></tr></thead>
-              <tbody>
-                <tr>
-                  <td class="mono">rl2</td>
-                  <td class="mono">/home/qbone/shared/rl2</td>
-                  <td><span class="chip ok">RT11</span></td>
-                  <td class="muted">last sync 3 s ago · 14 files</td>
-                  <td><button class="btn small" data-toast-cmd="" data-toast-msg="Shared directory browser (mockup)">Browse</button></td>
-                </tr>
-              </tbody>
             </table>
           </div>
         </div>
@@ -888,130 +863,13 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
 <div class="toast-host" id="toasts"></div>
 
 <script>
-/* ============================================================
-   Static mock data — mirrors the real device registry:
-   device_c::mydevices + parameter_c metadata.
-   ============================================================ */
-const DEVICES = [
-  { name:'rl', type:'RLV12', kind:'controller', enabled:true, info:'RL01/RL02 disk controller',
-    params:[
-      {n:'base_addr',  s:'addr', t:'oct',  v:'774400', ro:true,  i:'controller base address in IO page'},
-      {n:'intr_vector',s:'iv',   t:'oct',  v:'160',    ro:true,  i:'interrupt vector'},
-      {n:'intr_level', s:'il',   t:'uint', v:'5',      ro:true,  i:'interrupt bus request level'},
-      {n:'priority_slot',s:'sl', t:'uint', v:'11',     ro:true,  i:'backplane slot for DMA/INTR priority'},
-      {n:'verbosity',  s:'v',    t:'uint', v:'1',      ro:false, i:'device log level (0=off … 4=debug)'},
-    ],
-    drives:[
-      { name:'rl0', type:'RL02', enabled:true,  activity:true,  img:'rt11v53.rl02',
-        params:[
-          {n:'unit',u:'',s:'u',t:'uint',v:'0',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'10.4',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'rt11v53.rl02',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-          {n:'shared_dir',s:'shd',t:'str',v:'',ro:false,i:'host directory to share instead of an image'},
-          {n:'shared_filesystem',s:'shfs',t:'enum',v:'',opts:['','RT11','XXDP'],ro:false,i:'filesystem to render into the shared directory'},
-          {n:'emulation_speed',s:'es',t:'dbl',v:'1.0',ro:false,i:'1 = real drive timing, 10 = 10× faster'},
-        ]},
-      { name:'rl1', type:'RL02', enabled:true, activity:false, img:'games.rl02',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'1',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'10.4',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'games.rl02',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-          {n:'shared_dir',s:'shd',t:'str',v:'',ro:false,i:'host directory to share instead of an image'},
-          {n:'shared_filesystem',s:'shfs',t:'enum',v:'',opts:['','RT11','XXDP'],ro:false,i:'filesystem to render into the shared directory'},
-          {n:'emulation_speed',s:'es',t:'dbl',v:'1.0',ro:false,i:'1 = real drive timing, 10 = 10× faster'},
-        ]},
-      { name:'rl2', type:'RL02', enabled:true, activity:false, img:'shared: /home/qbone/shared/rl2 (RT11)',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'2',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'10.4',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-          {n:'shared_dir',s:'shd',t:'str',v:'/home/qbone/shared/rl2',ro:false,i:'host directory to share instead of an image'},
-          {n:'shared_filesystem',s:'shfs',t:'enum',v:'RT11',opts:['','RT11','XXDP'],ro:false,i:'filesystem to render into the shared directory'},
-          {n:'emulation_speed',s:'es',t:'dbl',v:'1.0',ro:false,i:'1 = real drive timing, 10 = 10× faster'},
-        ]},
-      { name:'rl3', type:'RL01', enabled:false, activity:false, img:'',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'3',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'5.2',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-          {n:'shared_dir',s:'shd',t:'str',v:'',ro:false,i:'host directory to share instead of an image'},
-          {n:'shared_filesystem',s:'shfs',t:'enum',v:'',opts:['','RT11','XXDP'],ro:false,i:'filesystem to render into the shared directory'},
-          {n:'emulation_speed',s:'es',t:'dbl',v:'1.0',ro:false,i:'1 = real drive timing, 10 = 10× faster'},
-        ]},
-    ]},
-  { name:'dl11', type:'DL11 SLU', kind:'controller', enabled:true, info:'serial line unit — PDP-11 console',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'777560',ro:true,i:'controller base address in IO page'},
-      {n:'intr_vector',s:'iv',t:'oct',v:'60',ro:true,i:'receiver interrupt vector (xmt = +4)'},
-      {n:'intr_level',s:'il',t:'uint',v:'4',ro:true,i:'interrupt bus request level'},
-      {n:'serialport',s:'p',t:'str',v:'ttyS1',ro:false,i:'physical UART routed to the bus device'},
-      {n:'baudrate',s:'b',t:'uint',v:'9600',ro:false,i:'serial line speed'},
-    ], drives:[] },
-  { name:'slu1', type:'DL11 SLU', kind:'controller', enabled:false, info:'second serial line — TU58 tape at 776500',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'776500',ro:false,i:'controller base address in IO page'},
-      {n:'intr_vector',s:'iv',t:'oct',v:'300',ro:false,i:'receiver interrupt vector (xmt = +4)'},
-      {n:'intr_level',s:'il',t:'uint',v:'4',ro:false,i:'interrupt bus request level'},
-      {n:'serialport',s:'p',t:'str',v:'ttyS2',ro:false,i:'physical UART routed to the bus device'},
-      {n:'baudrate',s:'b',t:'uint',v:'38400',ro:false,i:'serial line speed'},
-    ], drives:[] },
-  { name:'ltc', type:'KW11-L', kind:'controller', enabled:true, info:'line time clock, 50 Hz',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'777546',ro:true,i:'clock status register address'},
-      {n:'intr_vector',s:'iv',t:'oct',v:'100',ro:true,i:'clock interrupt vector'},
-      {n:'frequency',s:'f',t:'uint',v:'50',u:'Hz',ro:false,i:'tick frequency'},
-    ], drives:[] },
-  { name:'uda', type:'MSCP', kind:'controller', enabled:false, info:'MSCP controller (UDA50 class)',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'772150',ro:false,i:'controller base address in IO page'},
-      {n:'intr_vector',s:'iv',t:'oct',v:'154',ro:false,i:'interrupt vector'},
-      {n:'intr_level',s:'il',t:'uint',v:'5',ro:false,i:'interrupt bus request level'},
-    ],
-    drives:[
-      { name:'uda0', type:'RD54', enabled:false, activity:false, img:'rsx11m.dsk',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'0',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'159',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'rsx11m.dsk',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-          {n:'emulation_speed',s:'es',t:'dbl',v:'1.0',ro:false,i:'1 = real drive timing, 10 = 10× faster'},
-        ]},
-    ]},
-  { name:'rx', type:'RXV21', kind:'controller', enabled:false, info:'RX02 floppy controller',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'777170',ro:false,i:'controller base address in IO page'},
-      {n:'intr_vector',s:'iv',t:'oct',v:'264',ro:false,i:'interrupt vector'},
-      {n:'intr_level',s:'il',t:'uint',v:'5',ro:false,i:'interrupt bus request level'},
-    ],
-    drives:[
-      { name:'rx0', type:'RX02', enabled:false, activity:false, img:'',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'0',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'0.5',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-        ]},
-      { name:'rx1', type:'RX02', enabled:false, activity:false, img:'',
-        params:[
-          {n:'unit',s:'u',t:'uint',v:'1',ro:true,i:'drive unit number'},
-          {n:'capacity',s:'cap',t:'str',v:'0.5',u:'MB',ro:true,i:'drive capacity'},
-          {n:'image',s:'img',t:'str',v:'',ro:false,i:'path to binary image file; empty to detach; .gz also searched'},
-        ]},
-    ]},
-  { name:'demo_io', type:'DEMO_IO', kind:'controller', enabled:false, info:'demo I/O register device (switches & lamps)',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'760100',ro:false,i:'demo register address'},
-    ], drives:[] },
-  { name:'testcontroller', type:'TEST', kind:'controller', enabled:false, info:'DMA/INTR test device',
-    params:[
-      {n:'base_addr',s:'addr',t:'oct',v:'760200',ro:false,i:'test register base address'},
-    ], drives:[] },
-];
 
 /* ============================================================
    Live backend integration. DEVMODEL is rendered everywhere;
-   it points at the static mock until /api/devices answers.
+   it holds the device tree /api/devices reports, and stays
+   empty until that first answer arrives.
    ============================================================ */
-let DEVMODEL = DEVICES;
-let LIVE = false;
+let DEVMODEL = [];
 
 function octalStr(v, bitwidth) {
   return v.toString(8).padStart(Math.ceil((bitwidth || 16) / 3), '0');
@@ -1082,6 +940,21 @@ async function liveControl(action, okMsg) {
 }
 
 /* ---------------- machine settings: /api/settings ---------------- */
+/* the directory the backend keeps images in, from /api/state */
+let IMAGES_DIR = '';
+/* An image is shown by name while it lives in that directory. One attached
+   from anywhere else keeps its full path, so a drive running off a file the
+   Storage page does not manage is visible as exactly that. */
+function imageLabel(path) {
+  if (!path) return '';
+  const pfx = IMAGES_DIR + '/';
+  if (IMAGES_DIR && path.startsWith(pfx)) {
+    const rest = path.slice(pfx.length);
+    if (rest.indexOf('/') === -1) return rest;
+  }
+  return path;
+}
+
 let SETTINGS = { platform: '', address_width: 22,
                  external_console: { source: 'webserial', port: 'ttyS2', baud: 38400 } };
 function renderSettings() {
@@ -1092,7 +965,6 @@ function renderSettings() {
   const ec = s.external_console || {};
   $$('input[name="extsrc"]').forEach(r => { r.checked = r.value === ec.source; });
   const baud = $('#set-extbaud'); if (baud) baud.value = String(ec.baud || 38400);
-  const bnote = $('#set-addrwidth-note'); if (bnote) bnote.textContent = LIVE ? '' : 'static data';
   updateConsoleSource();
 }
 async function refreshSettings() {
@@ -1102,11 +974,6 @@ async function refreshSettings() {
   renderSettings();
 }
 async function putSettings(patch, okMsg) {
-  if (!LIVE) { /* static mock: keep it local */
-    if (patch.address_width) SETTINGS.address_width = patch.address_width;
-    if (patch.external_console) Object.assign(SETTINGS.external_console, patch.external_console);
-    renderSettings(); toast('PUT /api/settings', okMsg + ' (static)'); return { ok: true, data: {} };
-  }
   const r = await fetch('/api/settings', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
@@ -1178,28 +1045,27 @@ let updateConsoleSource = function () {
 function setConn(ok) {
   $('#conn-pill').innerHTML = ok
     ? '<span class="dot ok"></span>connected'
-    : '<span class="dot warn"></span>static data';
+    : '<span class="dot warn"></span>disconnected';
 }
 async function initLive() {
   try {
     const st = await fetch('/api/state');
     if (!st.ok) throw new Error();
     const state = await st.json();
+    IMAGES_DIR = state.images_dir || '';
     await checkAuth().catch(() => {});
     await refreshDevices();
-    LIVE = true;
     setConn(true);
-    $('#foot').innerHTML = 'demo · ' + esc(state.platform || '') + '<br>web interface';
+    $('#foot').innerHTML = esc(state.platform || '') + '<br>web interface';
     await refreshSettings().catch(() => {});
     initEvents();
     initLiveTerminal();
     renderWidgets();
   } catch (e) {
-    /* no backend: fall back to the static mock model for the widgets.
-       Rendering only here (not at boot) avoids a flash of mock widgets
-       before the live model — all-disabled — replaces them. */
     setConn(false);
-    renderWidgets();
+    $('#device-widgets').innerHTML =
+      '<div class="muted" style="font-size:var(--fs-1); padding:4px">' +
+      'No answer from the QBone — the page shows nothing until it responds.</div>';
   }
 }
 
@@ -1260,14 +1126,10 @@ function replayEventValues() {
   });
 }
 const LOG_LEVELS = { 1: 'FATAL', 2: 'ERROR', 3: 'WARNING', 4: 'INFO', 5: 'DEBUG' };
-let logCleared = false;
 function initEvents() {
   eventsWs = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
       + location.host + '/ws/events');
-  eventsWs.onopen = () => {
-    setConn(true);
-    if (!logCleared) { logCleared = true; LOG.length = 0; renderLogs(); }
-  };
+  eventsWs.onopen = () => { setConn(true); };
   eventsWs.onmessage = e => {
     let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
     if (ev.t === 'param') {
@@ -1299,8 +1161,8 @@ function initEvents() {
 }
 
 /* ---------------- live terminals ---------------- */
-/* xterm.js replaces the mock character grid: 80×24, no local echo, raw
-   bytes both ways. Three instances behind the tab bar:
+/* xterm.js at 80×24, no local echo, raw bytes both ways.
+   Three instances behind the tab bar:
      slu0/slu1 — /ws/console/<n>, byte-transparent DL11 taps, shown only
                  while the SLU device is enabled
      serial    — a serial port local to the browser via the Web Serial
@@ -1333,8 +1195,6 @@ function initLiveTerminal() {
     slu1: makeTermInstance(),
     serial: makeTermInstance(),
   };
-  $('#tab-serial').disabled = false;
-  $('#tab-serial').title = '';
   wireConsole('slu0', 0);
   wireConsole('slu1', 1);
   wireSerial();
@@ -1465,65 +1325,8 @@ function wireSerial() {
   updateConsoleSource();
 }
 
-const IMAGES = [
-  { f:'rt11v53.rl02',    size:'10.4 MB', att:'rl0', mtime:'2026-07-14 09:12' },
-  { f:'games.rl02',      size:'10.4 MB', att:'rl1', mtime:'2026-07-10 21:40' },
-  { f:'xxdp25.rl02',     size:'10.4 MB', att:'',    mtime:'2026-05-02 18:03' },
-  { f:'rt11v53.rl02.gz', size:'3.1 MB',  att:'',    mtime:'2026-05-02 18:01' },
-  { f:'rsx11m.dsk',      size:'159 MB',  att:'',    mtime:'2026-06-21 14:55' },
-  { f:'empty.rx2',       size:'512 KB',  att:'',    mtime:'2026-04-11 08:20' },
-];
-
-const CONFIGS = [
-  { dip:1, name:'Just memory',            sh:'memory.sh', cmd:
-`d                       # devices menu
-m i                     # emulate memory to max address
-.print memory installed` },
-  { dip:3, name:'RT-11 V5.3 SJ on RL',    sh:'rt11v5.3_dl0.sh', active:true, cmd:
-`d                       # devices menu
-m i                     # emulate memory
-en rl                   # enable RLV12 controller
-sd rl0
-p image rt11v53.rl02    # mount system pack
-en rl0
-sd rl1
-p image games.rl02
-en rl1
-en dl11                 # console SLU
-en ltc                  # line clock, 50 Hz
-.print RT-11 ready — boot DL0` },
-  { dip:4, name:'XXDP 2.5 diagnostics',   sh:'xxdp2.5_dl1.sh', cmd:
-`d
-m i
-en rl
-sd rl1
-p image xxdp25.rl02
-en rl1
-en dl11
-.print XXDP pack on DL1` },
-  { dip:6, name:'RSX-11M on MSCP RD54',   sh:'rsx11m_du0.sh', cmd:
-`d
-m i
-en uda                  # MSCP controller
-sd uda0
-p image rsx11m.dsk
-en uda0
-en dl11
-en ltc
-.print RSX-11M pack on DU0` },
-];
-
-const LOG = [
-  { t:'14:02:11.482', lvl:'INFO',    src:'rl0',  msg:'image rt11v53.rl02 opened read/write, 10485760 bytes' },
-  { t:'14:02:11.490', lvl:'INFO',    src:'rl',   msg:'device installed @ 774400, vector 160, level 5' },
-  { t:'14:02:12.001', lvl:'INFO',    src:'dl11', msg:'serial ttyS1 @ 9600 8N1, console attached' },
-  { t:'14:02:12.104', lvl:'INFO',    src:'ltc',  msg:'line clock enabled, 50 Hz' },
-  { t:'14:05:38.220', lvl:'WARNING', src:'rl1',  msg:'seek to cyl 511 beyond RL01 range mapped to RL02 geometry' },
-  { t:'14:07:02.914', lvl:'INFO',    src:'shfs', msg:'rl2: host dir change detected, 2 files synced to RT11 volume' },
-  { t:'14:12:44.371', lvl:'ERROR',   src:'rx',   msg:'drive rx0: read on detached drive rejected (no image)' },
-  { t:'14:13:01.023', lvl:'DEBUG',   src:'qba',  msg:'DMA DATI 017774400 → 000205 (1 word, 0.9 µs)' },
-  { t:'14:16:20.708', lvl:'INFO',    src:'rl0',  msg:'activity: 448 blocks read in last 60 s' },
-];
+/* log lines arrive on /ws/events; the page keeps the last 500 */
+const LOG = [];
 
 /* ============================================================ */
 const $ = (sel, el) => (el || document).querySelector(sel);
@@ -1540,11 +1343,6 @@ function toast(cmd, msg) {
   host.appendChild(el);
   setTimeout(() => el.remove(), 3600);
 }
-document.addEventListener('click', e => {
-  const b = e.target.closest('[data-toast-cmd]');
-  if (b) toast(b.dataset.toastCmd, b.dataset.toastMsg);
-});
-
 /* ------------------- navigation ------------------- */
 const PAGES = [
   ['dashboard','Dashboard'], ['devices','Devices'], ['storage','Storage'],
@@ -1565,9 +1363,9 @@ function show(pageId) {
   $$('.page').forEach(p => p.classList.toggle('active', p.dataset.page === pageId));
   $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.nav === pageId));
   $('#page-title').textContent = PAGES.find(p => p[0] === pageId)[1];
-  if (LIVE && pageId === 'storage') refreshImages().catch(() => {});
-  if (LIVE && pageId === 'configurations') refreshConfigs().catch(() => {});
-  if (LIVE && pageId === 'machine') refreshSettings().catch(() => {});
+  if (pageId === 'storage') refreshImages().catch(() => {});
+  if (pageId === 'configurations') refreshConfigs().catch(() => {});
+  if (pageId === 'machine') refreshSettings().catch(() => {});
 }
 document.addEventListener('click', e => {
   const n = e.target.closest('[data-nav]');   if (n) show(n.dataset.nav);
@@ -1578,7 +1376,16 @@ document.addEventListener('click', e => {
 function paramRow(dev, p) {
   const short = p.s && p.s !== p.n ? ' <span class="p-short">(' + esc(p.s) + ')</span>' : '';
   let ctl;
-  if (p.ro) {
+  if (p.n === 'image' && p.ro) {
+    // a drive locks its image while the pack spins
+    ctl = '<span class="ro" title="' + esc(p.v) + '">' +
+      (p.v ? esc(imageLabel(p.v)) : 'no image') + '</span>';
+  } else if (p.n === 'image') {
+    // the medium is chosen from the images the interface manages, by name
+    ctl = '<button class="imgfield mono" data-img-pick="' + esc(dev) +
+      '" data-img-now="' + esc(p.v) + '" title="' + esc(p.v || 'no image') + '">' +
+      (p.v ? esc(imageLabel(p.v)) : '<span class="muted">no image</span>') + '</button>';
+  } else if (p.ro) {
     ctl = '<span class="ro">' + (p.t === 'oct' ? '<span class="octal"></span>' : '') + esc(p.v) + '</span>';
   } else if (p.t === 'enum') {
     ctl = '<select data-dev="' + dev + '" data-param="' + esc(p.s || p.n) + '">' +
@@ -1598,7 +1405,7 @@ function driveRow(d) {
     '<span class="muted" style="font-size:var(--fs-1)">' + d.type + '</span>' +
     /* the image slot only applies to drives */
     (!d.params.some(p => p.n === 'image') ? '' :
-      (d.img ? '<span class="imgpath">' + esc(d.img) + '</span>'
+      (d.img ? '<span class="imgpath" title="' + esc(d.img) + '">' + esc(imageLabel(d.img)) + '</span>'
              : '<span class="imgpath" style="color:var(--ink-faint)">no image attached</span>')) +
     '<span class="spacer"></span>' +
     '<span class="chip ' + (d.enabled ? 'ok">enabled' : 'off">disabled') + '</span>' +
@@ -1636,97 +1443,49 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.matches('[data-endev]')) {
     const name = t.dataset.endev, on = t.checked;
-    if (LIVE) {
-      liveSetParam(name, 'enabled', on ? '1' : '0',
-        on ? 'device enabled — registers installed on the bus' : 'device disabled');
-      return;
-    }
-    (function set(list) { list.forEach(d => { if (d.name === name) d.enabled = on; set(d.drives || []); }); })(DEVMODEL);
-    toast((on ? 'en ' : 'dis ') + name, (on ? 'Device enabled — registers installed on the bus' : 'Device disabled — registers removed'));
-    renderDevices(); renderNav(); renderDevChips();
-    $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.nav === 'devices'));
+    liveSetParam(name, 'enabled', on ? '1' : '0',
+      on ? 'device enabled — registers installed on the bus' : 'device disabled');
   }
-  if (t.matches('[data-param]')) {
-    if (LIVE) {
-      liveSetParam(t.dataset.dev, t.dataset.param, t.value, 'parameter set');
-      return;
-    }
-    toast('sd ' + t.dataset.dev + '\n> p ' + t.dataset.param + ' ' + (t.value === '' ? '""' : t.value),
-          'Parameter parsed and validated by the device');
-  }
+  if (t.matches('[data-param]'))
+    liveSetParam(t.dataset.dev, t.dataset.param, t.value, 'parameter set');
 });
 
-/* ------------------- storage page ------------------- */
-function renderImages() {
-  if (LIVE) { renderImagesLive(); return; }
-  $('#image-table tbody').innerHTML = IMAGES.map(im =>
-    '<tr>' +
-      '<td class="mono">' + im.f + '</td>' +
-      '<td class="mono">' + im.size + '</td>' +
-      '<td>' + (im.att ? '<span class="chip ok">' + im.att + '</span>' : '<span class="muted">—</span>') + '</td>' +
-      '<td class="muted mono" style="font-size:var(--fs-0)">' + im.mtime + '</td>' +
-      '<td style="text-align:right; white-space:nowrap">' +
-        (im.f.endsWith('.gz')
-          ? '<span class="muted" style="font-size:var(--fs-0)">compressed original</span>'
-          : (im.att
-              ? '<button class="btn small" data-detach="' + im.f + '">Detach</button>'
-              : '<button class="btn small" data-attach="' + im.f + '">Attach…</button>')) +
-        ' <button class="btn small" data-toast-cmd="" data-toast-msg="Download started (mockup)">Download</button>' +
-      '</td>' +
-    '</tr>').join('');
-}
-document.addEventListener('click', e => {
-  if (LIVE) return; /* live storage actions have their own handlers */
-  const a = e.target.closest('[data-attach]');
-  if (a) toast('sd rl3\n> p image ' + a.dataset.attach, 'Pick a drive in the real UI — image attached via the image parameter');
-  const d = e.target.closest('[data-detach]');
-  if (d) {
-    const im = IMAGES.find(x => x.f === d.dataset.detach);
-    toast('sd ' + im.att + '\n> p image ""', 'Image detached from ' + im.att);
-  }
-  if (e.target.closest('#dropzone')) toast('POST /api/images', 'Upload dialog (mockup) — file lands in 5_applications');
-});
-
-/* ---------------- live storage: /api/images ---------------- */
+/* ------------------- storage page: /api/images ------------------- */
 let IMAGESLIVE = [];
 function humanSize(n) {
   if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
   if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
   return n + ' B';
 }
-/* storage drives = devices with an "image" parameter */
-function storageDrives() {
-  const out = [];
-  (function walk(list) { list.forEach(d => {
-    if (d.params && d.params.some(p => p.n === 'image')) out.push(d);
-    walk(d.drives || []);
-  }); })(DEVMODEL);
-  return out;
-}
 async function refreshImages() {
   const r = await fetch('/api/images');
   if (!r.ok) throw new Error('images fetch failed');
   IMAGESLIVE = await r.json();
-  renderImagesLive();
+  renderImages();
 }
-function renderImagesLive() {
-  /* shared directories are drive parameters — configured on the devices page */
-  $('#shared-dirs-card').style.display = 'none';
-  const driveOpts = storageDrives().map(d =>
-    '<option value="' + esc(d.name) + '">' + esc(d.name) + '</option>').join('');
+/* Where an image is used: the configurations that name it, as
+   <configuration>:<drive>, and separately the drive holding it right now.
+   The live mount is what makes a file busy, so it is worth its own mark. */
+function imageUsage(im) {
+  const parts = (im.used || []).map(u =>
+    '<span class="chip out mono" title="named by a saved configuration">' +
+      esc(u.config) + ':' + esc(u.device) + '</span>');
+  (im.attached || []).forEach(d => parts.push(
+    '<span class="chip ok mono" title="mounted on this drive now">' +
+      esc(d) + ' mounted</span>'));
+  return parts.length ? parts.join(' ') : '<span class="muted">—</span>';
+}
+/* Storage manages the files themselves. Which drive starts with which image
+   belongs to a configuration, and the front panel swaps a medium on a
+   running drive. */
+function renderImages() {
   $('#image-table tbody').innerHTML = IMAGESLIVE.map(im =>
     '<tr>' +
       '<td class="mono">' + esc(im.name) + '</td>' +
       '<td class="mono">' + humanSize(im.size) + '</td>' +
-      '<td>' + (im.attached.length
-          ? im.attached.map(d => '<span class="chip ok">' + esc(d) + '</span>').join(' ')
-          : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + imageUsage(im) + '</td>' +
       '<td class="muted mono" style="font-size:var(--fs-0)">' + esc(im.mtime) + '</td>' +
       '<td style="text-align:right; white-space:nowrap">' +
-        im.attached.map(d =>
-          '<button class="btn small" data-img-detach="' + esc(d) + '">Detach ' + esc(d) + '</button> ').join('') +
-        '<select class="mono" data-img-drive="' + esc(im.name) + '" style="font-size:var(--fs-0)">' + driveOpts + '</select> ' +
-        '<button class="btn small" data-img-attach="' + esc(im.name) + '">Attach</button> ' +
         '<a class="btn small" href="/api/images/' + encodeURIComponent(im.name) + '" download>Download</a> ' +
         '<button class="btn small" data-img-del="' + esc(im.name) + '">Delete</button>' +
       '</td>' +
@@ -1734,22 +1493,6 @@ function renderImagesLive() {
     '<tr><td colspan="5" class="muted">No images yet — drop a disk image above to upload it.</td></tr>';
 }
 document.addEventListener('click', e => {
-  if (!LIVE) return;
-  const a = e.target.closest('[data-img-attach]');
-  if (a) {
-    const name = a.dataset.imgAttach;
-    const im = IMAGESLIVE.find(x => x.name === name);
-    const drive = document.querySelector('select[data-img-drive="' + CSS.escape(name) + '"]').value;
-    if (im && drive) {
-      liveSetParam(drive, 'image', im.path, 'image attached');
-      setTimeout(() => refreshImages().catch(() => {}), 300);
-    }
-  }
-  const d = e.target.closest('[data-img-detach]');
-  if (d) {
-    liveSetParam(d.dataset.imgDetach, 'image', '', 'image detached');
-    setTimeout(() => refreshImages().catch(() => {}), 300);
-  }
   const del = e.target.closest('[data-img-del]');
   if (del) {
     if (del.dataset.confirmed !== '1') {
@@ -1791,10 +1534,10 @@ const dropzoneEl = $('#dropzone');
 dropzoneEl.addEventListener('dragover', e => { e.preventDefault(); });
 dropzoneEl.addEventListener('drop', e => {
   e.preventDefault();
-  if (LIVE && e.dataTransfer.files.length) uploadImage(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files.length) uploadImage(e.dataTransfer.files[0]);
 });
 $('#img-file').addEventListener('change', e => {
-  if (LIVE && e.target.files.length) uploadImage(e.target.files[0]);
+  if (e.target.files.length) uploadImage(e.target.files[0]);
   e.target.value = '';
 });
 
@@ -1809,36 +1552,6 @@ const termEl = $('#term');
 $('#tab-slu0').addEventListener('click', () => { if (TERMS) liveTab('slu0'); });
 $('#tab-slu1').addEventListener('click', () => { if (TERMS) liveTab('slu1'); });
 $('#tab-serial').addEventListener('click', () => { if (TERMS) liveTab('serial'); });
-
-/* ------------------- configurations page ------------------- */
-function renderConfigs() {
-  if (LIVE) { refreshConfigs().catch(() => {}); return; }
-  $('#cfg-list').innerHTML = CONFIGS.map((c, i) =>
-    '<div class="card cfg-row">' +
-      '<div class="card-head">' +
-        '<span class="cfg-dip">DIP ' + c.dip + '</span>' +
-        '<h3>' + esc(c.name) + '</h3>' +
-        '<span class="pill mono">' + c.sh + '</span>' +
-        (c.active ? '<span class="chip ok">running</span>' : '') +
-        '<span style="margin-left:auto; display:flex; gap:8px">' +
-          '<button class="btn small" data-cfgview="' + i + '">View .cmd</button>' +
-          '<button class="btn small primary" data-cfgrun="' + i + '">Run</button>' +
-        '</span>' +
-      '</div>' +
-      '<pre class="cfg-cmd" data-cfgcmd="' + i + '">' +
-        esc(c.cmd).replace(/#[^\n]*/g, m => '<span class="cm">' + m + '</span>') + '</pre>' +
-    '</div>').join('');
-}
-document.addEventListener('click', e => {
-  if (LIVE) return; /* live configuration actions have their own handlers */
-  const v = e.target.closest('[data-cfgview]');
-  if (v) $('[data-cfgcmd="' + v.dataset.cfgview + '"]').classList.toggle('open');
-  const r = e.target.closest('[data-cfgrun]');
-  if (r) {
-    const c = CONFIGS[+r.dataset.cfgrun];
-    toast('POST /api/configs/' + c.sh + '/run', '“' + c.name + '” — .cmd lines feed the command queue');
-  }
-});
 
 /* A modal the caller awaits; resolves true only when the user confirms.
    body is trusted markup built by the caller, which escapes what it inserts. */
@@ -1964,30 +1677,75 @@ function cfgKey(snap) {
     })
     .sort().join('|');
 }
+/* Which drives a configuration can carry a medium on. A saved snapshot names
+   only what differs from the defaults, so a drive with no image has no image
+   key — the live model is what says the drive takes one at all. */
+function cfgDriveNames() {
+  const out = [];
+  (function walk(list) { list.forEach(d => {
+    if (d.params && d.params.some(p => p.n === 'image')) out.push(d.name);
+    walk(d.drives || []);
+  }); })(DEVMODEL);
+  return out;
+}
 /* A configuration reads like the devices page: the devices it switches on,
    each with the parameters it pins. Everything it does not name is switched
-   off and left at its default. */
-function cfgDevicesHtml(snap) {
+   off and left at its default. The medium each drive starts with is the one
+   part edited here, since that is what the configuration decides. */
+function cfgDevicesHtml(cfgName, snap) {
   const devs = ((snap || {}).devices || []).filter(d => d.enabled);
   if (!devs.length)
     return '<div class="muted" style="padding:10px 14px; font-size:var(--fs-1)">' +
            'This configuration switches every device off.</div>';
+  const drives = cfgDriveNames();
   return devs.map(d => {
-    const names = Object.keys(d.params || {}).sort();
+    const names = Object.keys(d.params || {}).sort().filter(n => n !== 'image');
+    const takesImage = drives.indexOf(d.name) !== -1;
+    const img = (d.params || {}).image || '';
+    const imgRow = !takesImage ? '' :
+      '<div class="p-name">image</div>' +
+      '<div class="p-val">' +
+        '<button class="btn small" data-cfg-img="' + esc(d.name) +
+          '" data-cfg-of="' + esc(cfgName) + '" data-cfg-now="' + esc(img) + '">' +
+          (img ? esc(imageLabel(img)) : 'no image') + ' · change…</button>' +
+      '</div>' +
+      '<div class="p-info">the medium this drive starts with</div>';
     return '<div class="dev-sub">' +
         '<span class="devname">' + esc(d.name) + '</span>' +
         '<span class="spacer"></span>' +
         '<span class="chip ok">enabled</span>' +
       '</div>' +
-      '<div class="params">' + (names.length
-        ? '<div class="p-grid">' + names.map(n =>
+      '<div class="params">' + (names.length || imgRow
+        ? '<div class="p-grid">' + imgRow + names.map(n =>
             '<div class="p-name">' + esc(n) + '</div>' +
-            '<div class="p-val"><span class="ro">' + esc(String(d.params[n])) + '</span></div>'
+            '<div class="p-val"><span class="ro">' + esc(String(d.params[n])) + '</span></div>' +
+            '<div class="p-info"></div>'
           ).join('') + '</div>'
         : '<span class="muted" style="font-size:var(--fs-1)">all parameters at their defaults</span>') +
       '</div>';
   }).join('');
 }
+/* Set the medium a configuration gives a drive. The file changes; the running
+   machine does not, so a configuration can be prepared while another runs. */
+async function setConfigImage(cfgName, drive, current) {
+  const name = await pickImage('Image for ' + drive + ' in “' + cfgName + '”',
+      'No image — leave the drive empty', current);
+  if (name === null) return;
+  const r = await fetch('/api/configs/' + encodeURIComponent(cfgName) +
+      '/devices/' + encodeURIComponent(drive) + '/image', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: name }),
+  });
+  const data = await r.json().catch(() => ({}));
+  toast(cfgName + ':' + drive + ' = ' + (name || '""'),
+      r.ok ? 'configuration updated' : (data.error || 'rejected'));
+  await refreshConfigs().catch(() => {});
+  if (r.ok) openCfgViews.add(cfgName);
+  refreshImages().catch(() => {});
+}
+/* which configuration cards are expanded, so editing one does not collapse it */
+const openCfgViews = new Set();
+
 async function refreshConfigs() {
   const r = await fetch('/api/configs');
   if (!r.ok) throw new Error('configs fetch failed');
@@ -2035,14 +1793,14 @@ async function refreshConfigs() {
             '<button class="btn small" data-cfg-del="' + esc(c.name) + '">Delete</button>' +
           '</span>' +
         '</div>' +
-        '<div class="cfg-devs" data-cfg-devs="' + esc(c.name) + '" hidden>' +
-          cfgDevicesHtml(c.snapshot) + '</div>' +
+        '<div class="cfg-devs" data-cfg-devs="' + esc(c.name) + '"' +
+          (openCfgViews.has(c.name) ? '' : ' hidden') + '>' +
+          cfgDevicesHtml(c.name, c.snapshot) + '</div>' +
       '</div>').join('');
   if (!configs.length)
     $('#cfg-list').innerHTML += '<div class="muted" style="padding:8px">No saved configurations yet.</div>';
 }
 document.addEventListener('click', async e => {
-  if (!LIVE) return;
   if (e.target.closest('#cfg-save')) {
     const name = $('#cfg-name').value.trim();
     if (!name) { toast('PUT /api/configs/…', 'enter a configuration name first'); return; }
@@ -2052,9 +1810,13 @@ document.addEventListener('click', async e => {
   }
   const v = e.target.closest('[data-cfg-view]');
   if (v) {
-    const el = document.querySelector('[data-cfg-devs="' + CSS.escape(v.dataset.cfgView) + '"]');
+    const name = v.dataset.cfgView;
+    const el = document.querySelector('[data-cfg-devs="' + CSS.escape(name) + '"]');
     el.hidden = !el.hidden;
+    if (el.hidden) openCfgViews.delete(name); else openCfgViews.add(name);
   }
+  const ci = e.target.closest('[data-cfg-img]');
+  if (ci) setConfigImage(ci.dataset.cfgOf, ci.dataset.cfgImg, ci.dataset.cfgNow);
   const a = e.target.closest('[data-cfg-apply]');
   if (a && !a.disabled) {
     const name = a.dataset.cfgApply;
@@ -2112,15 +1874,7 @@ $('#log-filters').addEventListener('click', e => {
 /* Each enabled device gets a widget chosen by its class (category),
    overridable per model. Controllers and "other" devices show nothing;
    serial devices appear as terminal tabs, not grid cards. */
-function catOf(d) {
-  if (d.category) return d.category;               /* live model */
-  if (d.kind === 'controller') return 'controller';
-  const t = (d.type || '').toUpperCase();          /* static-mock fallback */
-  if (/RL0|RK0|RA8|RX0|RD5|RS11|RP0|RM0/.test(t)) return 'disk';
-  if (/DL11|SLU|DZ11/.test(t)) return 'serial';
-  if (/DELQA|DEQNA|DEUNA/.test(t)) return 'network';
-  return 'other';
-}
+function catOf(d) { return d.category || 'other'; }
 function lampOn(d, n) { const p = (d.params || []).find(q => q.n === n); return p && p.v === '1'; }
 function paramVal(d, n) { const p = (d.params || []).find(q => q.n === n); return p ? p.v : ''; }
 
@@ -2146,23 +1900,23 @@ function lockTag(d) {
 function swapAffordance(d, cls) {
   const img = d.img || paramVal(d, 'image');
   // the widget is narrow: show the file, keep the path in the tooltip
-  const txt = img ? esc(img.replace(/^.*\//, '')) : 'no image';
+  const txt = img ? esc(imageLabel(img)) : 'no image';
   const tip = img ? ' title="' + esc(img) + '"' : '';
   if (driveRemovable(d) && !driveLocked(d))
     return '<button class="' + cls + ' swap mono" data-swap="' + esc(d.name) +
-           '"' + (tip || ' title="change image"') + '>' + txt + ' · change…</button>';
+           '" data-swap-now="' + esc(img) + '"' +
+           (tip || ' title="change image"') + '>' + txt + ' · change…</button>';
   return '<div class="' + cls + ' mono"' + tip + '>' + txt + '</div>';
 }
 
-/* model override: RL01/RL02 physical bezel (live lamps, or enabled-state
-   in the static mock); the buttons drive the runstop/writeprotect params */
+/* model override: RL01/RL02 physical bezel; the lamps follow the drive's
+   lamp parameters and the buttons drive runstop/writeprotect */
 function rlWidget(d) {
-  const hasLamps = (d.params || []).some(p => p.n === 'loadlamp');
   const unit = paramVal(d, 'unit') || d.name.replace(/\D/g, '');
-  const load  = hasLamps ? lampOn(d, 'loadlamp')  : !d.enabled;
-  const ready = hasLamps ? lampOn(d, 'readylamp') : d.enabled;
-  const fault = hasLamps ? lampOn(d, 'faultlamp') : false;
-  const wp    = hasLamps ? lampOn(d, 'writeprotectlamp') : false;
+  const load  = lampOn(d, 'loadlamp');
+  const ready = lampOn(d, 'readylamp');
+  const fault = lampOn(d, 'faultlamp');
+  const wp    = lampOn(d, 'writeprotectlamp');
   /* the unit number is on the READY cap, as on the drive */
   return '<div class="rlpanel">' +
     '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
@@ -2196,27 +1950,30 @@ function readyCap(unit, lit, wide) {
              (wide ? '<span class="rdy">READY</span>' : 'READY'));
 }
 
-/* model override: RA81 front bezel. RUN/STOP, WRITE PROT and the A/B port
-   buttons latch in the page — the MSCP emulation carries no state for them —
-   while READY and the FAULT cap follow the drive. */
+/* model override: RA81 front bezel. The drive spins as soon as a medium is
+   mounted, so RUN/STOP and READY follow the image; READY drops while the
+   drive is accessed, the way the real lamp flickers under load. WRITE PROT
+   and the FAULT cap latch in the page — the MSCP emulation carries no state
+   for them. The RA81 is dual-ported and this emulation serves port A. */
 const RA81_SWITCHES = new Map();
 function ra81Switches(name) {
   if (!RA81_SWITCHES.has(name))
-    RA81_SWITCHES.set(name, { run: true, wp: false, a: true, b: true, fault: false });
+    RA81_SWITCHES.set(name, { wp: false, fault: false });
   return RA81_SWITCHES.get(name);
 }
 function ra81Widget(d) {
   const unit = unitOf(d), sw = ra81Switches(d.name);
+  const mounted = !!(d.img || paramVal(d, 'image'));
   const active = lampOn(d, 'accesslamp');
-  const ready = d.enabled && sw.run && !active; // idle and up to speed
+  const ready = mounted && !active;
   const push = k => ' data-ra-sw="' + k + '" data-ra-dev="' + esc(d.name) + '"';
   return panel(d, unit,
-    cap('cap-yellow', sw.run, 'RUN<br>STOP', push('run')) +
+    cap('cap-yellow', mounted, 'RUN<br>STOP') +
     cap('cap-red', sw.fault, 'FAULT', ' data-ra-fault="' + esc(d.name) + '"') +
     readyCap(unit, ready, /*wide*/ true) +
     cap('cap-yellow', sw.wp, 'WRITE<br>PROT', push('wp')) +
-    cap('cap-white legend-lg', sw.a, 'A', push('a')) +
-    cap('cap-white legend-lg', sw.b, 'B', push('b')),
+    cap('cap-white legend-lg', true, 'A') +
+    cap('cap-white legend-lg', false, 'B'),
     lockTag(d) + swapAffordance(d, 'rl-img'), 'span2');
 }
 /* class default: disk */
@@ -2275,7 +2032,7 @@ document.addEventListener('click', e => {
   const l = e.target.closest('[data-rl-load]');
   if (l) {
     const d = rlDrives().find(x => x.name === l.dataset.rlLoad);
-    if (d && LIVE) {
+    if (d) {
       const on = (d.params.find(q => q.n === 'runstopbutton') || {}).v === '1';
       liveSetParam(d.name, 'runstopbutton', on ? '0' : '1',
           on ? 'pack spins down, LOAD lights when safe' : 'loading — READY after spin-up');
@@ -2284,7 +2041,7 @@ document.addEventListener('click', e => {
   const w = e.target.closest('[data-rl-wp]');
   if (w) {
     const d = rlDrives().find(x => x.name === w.dataset.rlWp);
-    if (d && LIVE) {
+    if (d) {
       const on = (d.params.find(q => q.n === 'writeprotectbutton') || {}).v === '1';
       liveSetParam(d.name, 'writeprotectbutton', on ? '0' : '1',
           on ? 'write protection released' : 'write-protected');
@@ -2310,41 +2067,59 @@ document.addEventListener('mouseup', () => {
 });
 
 /* image-picker modal: swap the medium of a removable, unlocked drive */
-async function openImagePicker(drive) {
+/* Pick one of the managed images, or none. Resolves to the chosen bare name,
+   to '' for detach, and to null when the dialog is dismissed. Both the front
+   panel and the configuration editor choose from the same list. */
+async function pickImage(title, emptyLabel, current) {
   const images = await fetch('/api/images').then(r => r.json()).catch(() => []);
+  const now = imageLabel(current || '');
   const rows = images.map(im =>
-    '<button class="pick-row" data-pick-path="' + esc(im.path) + '">' +
+    '<button class="pick-row' + (im.name === now ? ' current' : '') +
+      '" data-pick-name="' + esc(im.name) + '">' +
       '<span class="mono">' + esc(im.name) + '</span>' +
+      (im.name === now ? '<span class="chip ok">loaded</span>' : '') +
       '<span class="muted mono" style="font-size:var(--fs-0)">' + humanSize(im.size) + '</span>' +
     '</button>').join('') ||
     '<div class="muted" style="padding:8px">No images uploaded — add one on the Storage page.</div>';
-  const host = document.createElement('div');
-  host.className = 'modal-overlay';
-  host.innerHTML =
-    '<div class="card modal-card">' +
-      '<div class="card-head"><h3>Change image · ' + esc(drive) + '</h3>' +
-        '<button class="modal-close" data-pick-close aria-label="Close" title="Close">&times;</button></div>' +
-      '<div class="pick-list">' + rows +
-        '<button class="pick-row" data-pick-path=""><span class="muted">Detach — leave the drive empty</span></button>' +
-      '</div></div>';
-  host.addEventListener('click', e => {
-    if (e.target === host || e.target.closest('[data-pick-close]')) { host.remove(); return; }
-    const row = e.target.closest('[data-pick-path]');
-    if (row) {
-      const path = row.dataset.pickPath;
-      liveSetParam(drive, 'image', path, path ? 'image attached' : 'image detached');
+  return new Promise(resolve => {
+    const host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.innerHTML =
+      '<div class="card modal-card">' +
+        '<div class="card-head"><h3>' + esc(title) + '</h3>' +
+          '<button class="modal-close" data-pick-close aria-label="Close" title="Close">&times;</button></div>' +
+        '<div class="pick-list">' + rows +
+          '<button class="pick-row' + (now ? '' : ' current') + '" data-pick-name="">' +
+            '<span class="muted">' + esc(emptyLabel) + '</span></button>' +
+        '</div></div>';
+    const done = v => {
       host.remove();
-      setTimeout(() => refreshDevices().catch(() => {}), 300);
-    }
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    };
+    function onKey(e2) { if (e2.key === 'Escape') done(null); }
+    host.addEventListener('click', e => {
+      if (e.target === host || e.target.closest('[data-pick-close]')) { done(null); return; }
+      const row = e.target.closest('[data-pick-name]');
+      if (row) done(row.dataset.pickName);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(host);
   });
-  document.addEventListener('keydown', function esc(e2) {
-    if (e2.key === 'Escape') { host.remove(); document.removeEventListener('keydown', esc); }
-  });
-  document.body.appendChild(host);
+}
+/* the front panel: change the medium on a drive that is running */
+async function openImagePicker(drive, current) {
+  const name = await pickImage('Change image · ' + drive,
+      'Detach — leave the drive empty', current);
+  if (name === null) return;
+  liveSetParam(drive, 'image', name, name ? 'image attached' : 'image detached');
+  setTimeout(() => refreshDevices().catch(() => {}), 300);
 }
 document.addEventListener('click', e => {
   const s = e.target.closest('[data-swap]');
-  if (s) { e.preventDefault(); if (LIVE) openImagePicker(s.dataset.swap); }
+  if (s) { e.preventDefault(); openImagePicker(s.dataset.swap, s.dataset.swapNow); }
+  const ip = e.target.closest('[data-img-pick]');
+  if (ip) openImagePicker(ip.dataset.imgPick, ip.dataset.imgNow);
 });
 
 /* ------------------- dashboard bus control ------------------- */
@@ -2360,18 +2135,15 @@ function renderBus(initFlash) {
 const ARM_MS = 5000;
 const DANGER_ACTIONS = {
   halt: () => {
-    if (LIVE) liveControl('halt', 'HALT asserted — CPU stopped');
-    else toast('h 1', 'HALT asserted — CPU stopped');
+    liveControl('halt', 'HALT asserted — CPU stopped');
     busState.halted = true; renderBus(false);
   },
   continue: () => {
-    if (LIVE) liveControl('continue', 'HALT released — CPU running');
-    else toast('h 0', 'HALT released — CPU running');
+    liveControl('continue', 'HALT released — CPU running');
     busState.halted = false; renderBus(false);
   },
   powercycle: () => {
-    if (LIVE) liveControl('powercycle', 'devices reset, CPU reboots');
-    else toast('pwr', 'Power-fail cycle on the bus — devices reset, CPU reboots');
+    liveControl('powercycle', 'devices reset, CPU reboots');
     busState.halted = false;
     $('#bus-run').className = 'chip out';
     setTimeout(() => renderBus(false), 1200);
@@ -2397,18 +2169,10 @@ document.addEventListener('click', e => {
   DANGER_ACTIONS[b.dataset.danger]();
 });
 
-/* ------------------- ambient activity (mock page only) ------------------- */
-if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  setInterval(() => {
-    if (LIVE) return; /* live: LEDs come from /ws/events */
-    const led = $('#hw-led0');
-    if (led) led.classList.toggle('on');
-  }, 700);
-}
-
 /* ------------------- boot ------------------- */
-renderNav(); renderDevices(); renderDevChips(); renderImages(); renderConfigs();
-renderLogs(); renderSettings();
+/* Only the chrome is drawn here. Every page's contents come from the
+   backend, so they stay empty until initLive has the first answer. */
+renderNav();
 show('dashboard');
 initLive();
 </script>

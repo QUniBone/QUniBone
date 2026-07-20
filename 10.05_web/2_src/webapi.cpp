@@ -222,8 +222,20 @@ static void device_param_set(struct mg_connection *conn, const std::string &devn
 							printf("\nweb: %s disabled with controller %s\n",
 									drv->name.value.c_str(), dev->name.value.c_str());
 						}
-			} else
+			} else {
+				if (param->name == "image") {
+					// the web interface keeps images in one directory, so a
+					// bare name attaches the file it manages by that name
+					value = webstorage_image_path(value);
+					// both drives would write it
+					std::string other = webstorage_image_held_by(value, dev->name.value);
+					if (!other.empty()) {
+						send_error(conn, 409, "that image is mounted on " + other);
+						return;
+					}
+				}
 				param->parse(value);
+			}
 			// keep the terminal user informed, like an echoed command
 			printf("\nweb: %s.%s = %s\n", dev->name.value.c_str(),
 					param->name.c_str(), value.c_str());

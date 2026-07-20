@@ -45,6 +45,30 @@ static bool valid_image_name(const std::string &name) {
 			&& name.find('\\') == std::string::npos;
 }
 
+const std::string &webstorage_images_dir() {
+	return images_dir;
+}
+
+std::string webstorage_image_path(const std::string &name) {
+	if (name.empty() || name.find('/') != std::string::npos)
+		return name;
+	return images_dir + "/" + name;
+}
+
+std::string webstorage_image_held_by(const std::string &path, const std::string &except) {
+	if (path.empty())
+		return "";
+	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
+	for (device_c *dev : device_c::mydevices) {
+		storagedrive_c *drive = dynamic_cast<storagedrive_c *>(dev);
+		if (drive == nullptr || dev->name.value == except || !dev->enabled.value)
+			continue;
+		if (drive->image_filepath.value == path)
+			return dev->name.value;
+	}
+	return "";
+}
+
 static void send_json(struct mg_connection *conn, int status, const picojson::value &val) {
 	std::string body = val.serialize();
 	mg_printf(conn,
@@ -62,19 +86,18 @@ static void send_error(struct mg_connection *conn, int status, const std::string
 	send_json(conn, status, picojson::value(err));
 }
 
-// drives an image file is attached to, by comparing the drives'
-// image paths (relative or absolute) against the file name
+// drives an image file is attached to. The comparison is on the whole path,
+// so a drive holding a same-named file from another directory is reported as
+// what it is — not attached to the image listed here.
 static picojson::array attached_drives(const std::string &name) {
 	picojson::array result;
+	std::string path = images_dir + "/" + name;
 	std::lock_guard<std::mutex> lock(device_c::mydevices_mutex);
 	for (device_c *dev : device_c::mydevices) {
 		storagedrive_c *drive = dynamic_cast<storagedrive_c *>(dev);
 		if (drive == nullptr)
 			continue;
-		const std::string &path = drive->image_filepath.value;
-		size_t base = path.rfind('/');
-		if (path.compare(base == std::string::npos ? 0 : base + 1,
-				std::string::npos, name) == 0)
+		if (webstorage_image_path(drive->image_filepath.value) == path)
 			result.push_back(picojson::value(dev->name.value));
 	}
 	return result;
@@ -103,6 +126,15 @@ static void images_list(struct mg_connection *conn) {
 					localtime(&st.st_mtime));
 			o["mtime"] = picojson::value(mtime);
 			o["attached"] = picojson::value(attached_drives(name));
+			// where saved configurations put it, as configuration/drive pairs
+			picojson::array uses;
+			for (const config_image_use_t &u : webconfigs_image_uses(name)) {
+				picojson::object e;
+				e["config"] = picojson::value(u.config);
+				e["device"] = picojson::value(u.device);
+				uses.push_back(picojson::value(e));
+			}
+			o["used"] = picojson::value(uses);
 			images.push_back(picojson::value(o));
 		}
 		closedir(dir);

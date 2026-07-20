@@ -23,6 +23,8 @@
      POST   /api/configs/<name>/apply  restore a snapshot (best effort,
                                        returns the rejections)
      DELETE /api/configs/<name>        remove a snapshot
+     PUT    /api/configs/<name>/devices/<device>/image   {"value": "<image>"}
+                                       the medium that drive starts with
 
    Files live in $QUNIBONE_DIR/configs/<name>.json:
 
@@ -58,6 +60,7 @@
 #include "device_configuration.hpp"
 
 #include "webconfigs.hpp"
+#include "webstorage.hpp"
 
 static std::string configs_dir;
 
@@ -229,11 +232,39 @@ static bool read_config(const std::string &name, picojson::value *out,
 	return true;
 }
 
-// deleting an image must not break a saved configuration
-std::string webconfigs_image_referenced(const std::string &image_name) {
+// read and parse a JSON object request body
+static bool read_json_body(struct mg_connection *conn, picojson::value *out) {
+	char body[4096];
+	int body_len = mg_read(conn, body, sizeof(body) - 1);
+	if (body_len <= 0)
+		return false;
+	body[body_len] = 0;
+	std::string parse_err = picojson::parse(*out, body);
+	return parse_err.empty() && out->is<picojson::object>();
+}
+
+// the image a device entry names, empty when it names none
+static std::string device_image(const picojson::value &d) {
+	if (!d.get("params").is<picojson::object>())
+		return "";
+	const picojson::object &params = d.get("params").get<picojson::object>();
+	picojson::object::const_iterator it = params.find("image");
+	if (it == params.end() || !it->second.is<std::string>())
+		return "";
+	return it->second.get<std::string>();
+}
+
+static std::string basename_of(const std::string &path) {
+	size_t base = path.rfind('/');
+	return base == std::string::npos ? path : path.substr(base + 1);
+}
+
+// every drive, in every saved configuration, that names this image file
+std::vector<config_image_use_t> webconfigs_image_uses(const std::string &image_name) {
+	std::vector<config_image_use_t> uses;
 	DIR *dir = opendir(configs_dir.c_str());
 	if (dir == nullptr)
-		return "";
+		return uses;
 	struct dirent *entry;
 	while ((entry = readdir(dir)) != nullptr) {
 		std::string fname = entry->d_name;
@@ -246,23 +277,24 @@ std::string webconfigs_image_referenced(const std::string &image_name) {
 				|| !content.get("devices").is<picojson::array>())
 			continue;
 		for (picojson::value &d : content.get("devices").get<picojson::array>()) {
-			if (!d.get("params").is<picojson::object>())
+			std::string path = device_image(d);
+			if (path.empty() || basename_of(path) != image_name)
 				continue;
-			const picojson::object &params = d.get("params").get<picojson::object>();
-			picojson::object::const_iterator it = params.find("image");
-			if (it == params.end() || !it->second.is<std::string>())
-				continue;
-			const std::string &path = it->second.get<std::string>();
-			size_t base = path.rfind('/');
-			if (path.compare(base == std::string::npos ? 0 : base + 1,
-					std::string::npos, image_name) == 0) {
-				closedir(dir);
-				return name;
-			}
+			config_image_use_t use;
+			use.config = name;
+			use.device = d.get("name").is<std::string>()
+					? d.get("name").get<std::string>() : "";
+			uses.push_back(use);
 		}
 	}
 	closedir(dir);
-	return "";
+	return uses;
+}
+
+// deleting an image must not break a saved configuration
+std::string webconfigs_image_referenced(const std::string &image_name) {
+	std::vector<config_image_use_t> uses = webconfigs_image_uses(image_name);
+	return uses.empty() ? "" : uses[0].config;
 }
 
 // GET /api/configs
@@ -314,6 +346,88 @@ static void config_save(struct mg_connection *conn, const std::string &name) {
 	printf("\nweb: configuration \"%s\" saved\n", name.c_str());
 	picojson::object res;
 	res["ok"] = picojson::value(true);
+	send_json(conn, 200, picojson::value(res));
+}
+
+// PUT /api/configs/<name>/devices/<device>/image  {"value": "<image name>"}
+//
+// The medium a drive starts with belongs to the configuration, so it is
+// editable there without disturbing the machine. An empty value leaves the
+// drive with no image, which is the value it is constructed with, so the key
+// is dropped rather than stored: a snapshot names only what differs.
+//
+// Two drives in one configuration must not name the same file — applying it
+// would open the image twice, and both drives would write it.
+static void config_set_image(struct mg_connection *conn, const std::string &name,
+		const std::string &devname) {
+	picojson::value req;
+	if (!read_json_body(conn, &req) || !req.get("value").is<std::string>()) {
+		send_error(conn, 400, "body must be a JSON object with a string \"value\"");
+		return;
+	}
+	std::string value = req.get("value").get<std::string>();
+	// a bare name is one of the images this interface manages
+	std::string path = value.empty() ? "" : webstorage_image_path(value);
+
+	picojson::value content;
+	std::string err;
+	if (!read_config(name, &content, &err)) {
+		send_error(conn, 404, err);
+		return;
+	}
+	if (!content.get("devices").is<picojson::array>()) {
+		send_error(conn, 422, "configuration \"" + name + "\" names no devices");
+		return;
+	}
+	picojson::array &devices = content.get<picojson::object>()["devices"]
+			.get<picojson::array>();
+
+	picojson::value *target = nullptr;
+	for (picojson::value &d : devices) {
+		if (!d.get("name").is<std::string>() || d.get("name").get<std::string>() != devname)
+			continue;
+		target = &d;
+		break;
+	}
+	if (target == nullptr) {
+		send_error(conn, 404, "configuration \"" + name + "\" does not name device \""
+				+ devname + "\"");
+		return;
+	}
+	if (!path.empty())
+		for (picojson::value &d : devices) {
+			if (&d == target)
+				continue;
+			if (device_image(d) != path)
+				continue;
+			std::string other = d.get("name").is<std::string>()
+					? d.get("name").get<std::string>() : "another drive";
+			send_error(conn, 409, "\"" + basename_of(path) + "\" is already the image of "
+					+ other + " in this configuration");
+			return;
+		}
+
+	if (!target->get("params").is<picojson::object>())
+		target->get<picojson::object>()["params"] = picojson::value(picojson::object());
+	picojson::object &params = target->get<picojson::object>()["params"]
+			.get<picojson::object>();
+	if (path.empty())
+		params.erase("image");
+	else
+		params["image"] = picojson::value(path);
+
+	std::ofstream out(config_path(name).c_str());
+	if (!out.is_open()) {
+		send_error(conn, 500, "cannot write configuration \"" + name + "\"");
+		return;
+	}
+	out << content.serialize();
+	out.close();
+	printf("\nweb: configuration \"%s\": %s image = %s\n", name.c_str(),
+			devname.c_str(), path.empty() ? "none" : path.c_str());
+	picojson::object res;
+	res["ok"] = picojson::value(true);
+	res["image"] = picojson::value(path);
 	send_json(conn, 200, picojson::value(res));
 }
 
@@ -447,7 +561,22 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 
 	std::string name = rest.substr(1);
 	bool apply = false;
-	if (name.size() > 6 && name.compare(name.size() - 6, 6, "/apply") == 0) {
+	// /<name>/devices/<device>/image
+	std::string image_device;
+	size_t devsep = name.find("/devices/");
+	if (devsep != std::string::npos) {
+		std::string tail = name.substr(devsep + strlen("/devices/"));
+		name = name.substr(0, devsep);
+		if (tail.size() < 7 || tail.compare(tail.size() - 6, 6, "/image") != 0) {
+			send_error(conn, 404, "only the image of a device is editable");
+			return 404;
+		}
+		image_device = tail.substr(0, tail.size() - 6);
+		if (image_device.empty() || image_device.find('/') != std::string::npos) {
+			send_error(conn, 404, "unknown device");
+			return 404;
+		}
+	} else if (name.size() > 6 && name.compare(name.size() - 6, 6, "/apply") == 0) {
 		name = name.substr(0, name.size() - 6);
 		apply = true;
 	}
@@ -456,7 +585,13 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 		return 404;
 	}
 
-	if (apply && method == "POST")
+	if (!image_device.empty()) {
+		if (method != "PUT") {
+			send_error(conn, 405, "PUT required");
+			return 405;
+		}
+		config_set_image(conn, name, image_device);
+	} else if (apply && method == "POST")
 		config_apply(conn, name);
 	else if (!apply && method == "PUT")
 		config_save(conn, name);

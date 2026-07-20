@@ -32,6 +32,7 @@
 #include "logger.hpp"
 #include "webauth.hpp"
 #include "webserver.hpp"
+#include "webstorage.hpp"
 #include "qunibusadapter.hpp"
 
 webserver_c *webserver = nullptr;
@@ -153,6 +154,9 @@ static int api_state_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	picojson::object state;
 	state["platform"] = picojson::value(platform_name);
 	state["api_version"] = picojson::value((double)0);
+	// the directory the interface manages: a drive holding an image from
+	// anywhere else is shown by its full path, not by name alone
+	state["images_dir"] = picojson::value(webstorage_images_dir());
 	std::string body = picojson::value(state).serialize();
 	mg_printf(conn,
 			"HTTP/1.1 200 OK\r\n"
