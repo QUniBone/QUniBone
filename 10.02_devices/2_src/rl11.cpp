@@ -241,6 +241,14 @@ void RL11_c::on_after_uninstall()
 }
 
 
+// Signal the worker so it leaves its wait and sees workers_terminate.
+// Signalling without the mutex may be missed when it races the wait;
+// workers_stop() repeats the call until the worker returns.
+void RL11_c::worker_wake(void)
+{
+    pthread_cond_signal(&on_after_register_access_cond);
+}
+
 bool RL11_c::on_param_changed(parameter_c *param) 
 {
     if (param == &priority_slot) {
@@ -942,6 +950,8 @@ void RL11_c::worker(unsigned instance)
             ERROR("RL11::worker() pthread_cond_wait = %d = %s>", res, strerror(res));
             continue;
         }
+        if (workers_terminate)
+            break; // the unlock below releases the mutex held across the loop
         // res==0: triggered by signal, execute next cmd
         RL0102_c *drive = selected_drive();
         if (init_asserted) {

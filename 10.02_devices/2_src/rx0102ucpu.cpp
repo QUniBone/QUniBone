@@ -902,6 +902,17 @@ void RX0102uCPU_c::go()
 
 }
 
+// Signal the worker so it leaves its wait and sees workers_terminate.
+// Signalling without the mutex may be missed when it races the wait;
+// workers_stop() repeats the call until the worker returns.
+//
+// A wait inside step_execute() belongs to a program the drive is running and
+// is signalled by the controller, so only the idle wait is woken here.
+void RX0102uCPU_c::worker_wake(void)
+{
+    pthread_cond_signal(&on_worker_cond);
+}
+
 // thread
 void RX0102uCPU_c::worker(unsigned instance) 
 {
@@ -921,6 +932,8 @@ void RX0102uCPU_c::worker(unsigned instance)
                 ERROR("RX0102uCPU_c::worker() pthread_cond_wait = %d = %s>", res, strerror(res));
                 continue;
             }
+            if (workers_terminate)
+                break; // the unlock below releases the mutex held across the loop
         } else {
             // execute one step
             enum step_e step_cur = step_current() ;

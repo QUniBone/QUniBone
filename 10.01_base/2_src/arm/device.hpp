@@ -166,6 +166,22 @@ public:
 		UNUSED(instance);
 		printf("Warning: default device_c::worker() called, better  use set_worker_count(0) ");
 	}
+
+	// Wake worker() so it sees workers_terminate and returns.
+	//
+	// A worker parked in pthread_cond_wait() only leaves that wait when its
+	// condition variable is signalled, so a device whose worker waits on one
+	// signals it here and tests workers_terminate after each wake. Returning
+	// unwinds the worker normally and releases the mutexes it holds, which is
+	// what lets the device be enabled again: a worker killed by
+	// pthread_cancel() inside pthread_cond_wait() re-acquires the mutex while
+	// unwinding and dies owning it, and every later lock of that mutex blocks
+	// for the life of the process.
+	//
+	// A worker that polls with a timeout sees the flag on its own and needs
+	// nothing here.
+	virtual void worker_wake(void) {
+	}
 };
 
 #endif

@@ -114,6 +114,7 @@ public:
 
     // background worker function
     void worker(unsigned instance) override;
+    void worker_wake(void) override;
 
     RL0102_c *selected_drive(void);
 

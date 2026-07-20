@@ -59,6 +59,7 @@ public:
 
 	// background worker function
 	void worker(unsigned instance) override;
+	void worker_wake(void) override;
 
 	// called by qunibusadapter on emulated register access
 	void on_after_register_access(qunibusdevice_register_t *device_reg, uint8_t unibus_control, DATO_ACCESS access)

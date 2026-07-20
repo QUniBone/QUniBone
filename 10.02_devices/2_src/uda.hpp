@@ -77,6 +77,7 @@ public:
 	bool on_param_changed(parameter_c *param) override;
 
     void worker(unsigned instance) override;
+    void worker_wake(void) override;
 
     void on_after_register_access(
         qunibusdevice_register_t *device_reg,

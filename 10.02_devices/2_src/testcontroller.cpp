@@ -202,6 +202,14 @@ void testcontroller_c::on_init_changed(void)
 
 // background worker.
 // Just print a heart beat
+// Signal the worker so it leaves its wait and sees workers_terminate.
+// Signalling without the mutex may be missed when it races the wait;
+// workers_stop() repeats the call until the worker returns.
+void testcontroller_c::worker_wake(void)
+{
+    pthread_cond_signal(&on_after_register_access_cond);
+}
+
 void testcontroller_c::worker(unsigned instance) 
 {
     UNUSED(instance); // only one
@@ -220,6 +228,8 @@ void testcontroller_c::worker(unsigned instance)
                   strerror(res));
             continue;
         }
+        if (workers_terminate)
+            break; // the unlock below releases the mutex held across the loop
         // execute command in CSR,
         uint16_t cmd = CSR->active_dato_flipflops;
         // mark as processed

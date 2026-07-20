@@ -424,6 +424,15 @@ void slu_c::worker_rcv(void)
 	}
 }
 
+// Signal the worker so it leaves its wait and sees workers_terminate.
+// Signalling without the mutex may be missed when it races the wait;
+// workers_stop() repeats the call until the worker returns.
+// The receiver polls with a timeout and needs no wake; the transmitter waits.
+void slu_c::worker_wake(void)
+{
+	pthread_cond_signal(&on_after_xmt_register_access_cond);
+}
+
 void slu_c::worker_xmt(void) 
 {
 	timeout_c timeout;
@@ -442,6 +451,8 @@ void slu_c::worker_xmt(void)
 			ERROR("SLU::worker_xmt() pthread_cond_wait = %d = %s>", res, strerror(res));
 			continue;
 		}
+		if (workers_terminate)
+			break; // the unlock below releases the mutex held across the loop
 
 		// 2. transmit
 		rs232byte_t xmt_byte;

@@ -186,6 +186,7 @@ public:
 
     // background worker function
     void worker(unsigned instance) override;
+    void worker_wake(void) override;
 
 } ;
 

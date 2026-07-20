@@ -524,6 +524,14 @@ void RX211_c::worker_transfer_DMA2uCPU(void)
 
 // thread
 // no background activity for bus interface
+// Signal the worker so it leaves its wait and sees workers_terminate.
+// Signalling without the mutex may be missed when it races the wait;
+// workers_stop() repeats the call until the worker returns.
+void RX211_c::worker_wake(void)
+{
+    pthread_cond_signal(&on_after_register_access_cond);
+}
+
 void RX211_c::worker(unsigned instance) 
 {
     UNUSED(instance); // only one
@@ -536,6 +544,8 @@ void RX211_c::worker(unsigned instance)
             ERROR("RX211_c::worker() pthread_cond_wait = %d = %s>", res, strerror(res));
             continue;
         }
+        if (workers_terminate)
+            break;
 
         if (state != state_dma_busy)
             continue ;

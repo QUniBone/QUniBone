@@ -203,6 +203,17 @@ void uda_c::StateTransition(
 }
 
 //
+// worker_wake():
+//  Signals the state machine so worker() leaves its wait and sees
+//  workers_terminate. Signalling without the mutex may be missed when it
+//  races the wait; workers_stop() repeats the call until the worker returns.
+//
+void uda_c::worker_wake(void)
+{
+    pthread_cond_signal(&on_after_register_access_cond);
+}
+
+//
 // worker():
 //  Implements the initialization state machine.
 //
@@ -220,11 +231,19 @@ void uda_c::worker(unsigned instance)
         // Wait to be awoken.
         //
         pthread_mutex_lock(&on_after_register_access_mutex);
-        while (!_next_step)
+        while (!_next_step && !workers_terminate)
         {
             pthread_cond_wait(
                 &on_after_register_access_cond,
                 &on_after_register_access_mutex);
+        }
+
+        if (workers_terminate)
+        {
+            // leave the wait holding nothing, so the controller can be
+            // enabled again
+            pthread_mutex_unlock(&on_after_register_access_mutex);
+            break;
         }
 
         _next_step = false;

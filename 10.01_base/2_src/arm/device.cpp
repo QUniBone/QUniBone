@@ -341,33 +341,44 @@ void device_c::workers_start(void)
 	}
 }
 
-void device_c::workers_stop(void) 
+// Time a worker is given to return by itself before it is cancelled.
+static const unsigned worker_exit_timeout_ms = 1000;
+
+void device_c::workers_stop(void)
 {
 	timeout_c timeout;
 	int status;
 
 	workers_terminate = true; // global signal to all instances
-	timeout.wait_ms(100);
 
 	for (unsigned instance = 0; instance < workers.size(); instance++) {
 		device_worker_c *worker_instance = &workers[instance];
 
-//	if (!worker_instance->running) {
-//		DEBUG("%s.worker_stop(%u): already terminated.", name.name.c_str(), instance);
-//		return;
-//	}
+		// A worker that returns on its own unwinds normally and releases every
+		// mutex it holds, leaving the device able to run again when it is
+		// enabled next. Signal it repeatedly: a wake sent between the flag test
+		// and pthread_cond_wait() is missed, and the next one catches it.
+		unsigned waited;
+		for (waited = 0; worker_instance->running && waited < worker_exit_timeout_ms;
+				waited += 10) {
+			worker_wake();
+			timeout.wait_ms(10);
+		}
+
 		if (worker_instance->running) {
-			INFO("%s.worker(%u) not cooperative: cancel it ...", name.value.c_str(), instance);
-			// if thread is hanging in pthread_cond_wait(): send a cancellation request
+			// Cancellation is the last resort, and it costs: a thread cancelled
+			// inside pthread_cond_wait() re-acquires the mutex while unwinding
+			// and dies owning it, so every later lock of that mutex blocks
+			// forever. A device that lands here cannot be enabled again.
+			ERROR("%s.worker(%u) did not return within %u ms: cancelling it, "
+					"which may leave one of its mutexes locked.",
+					name.value.c_str(), instance, worker_exit_timeout_ms);
 			status = pthread_cancel(worker_instance->pthread);
 			if (status != 0)
 				FATAL("Failed to send cancellation request to worker_pthread with status = %d",
 						status);
 		}
 
-		// !! If crosscompiling: this causes a crash in the worker thread
-		// !! at pthread_cond_wait() or other cancellation points.
-		// !! No problem for compiles build on BBB itself.
 		status = pthread_join(worker_instance->pthread, NULL);
 		if (status != 0) {
 			FATAL("Failed to join worker_pthread with status = %d", status);

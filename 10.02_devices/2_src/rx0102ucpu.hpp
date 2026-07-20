@@ -183,6 +183,7 @@ public:
     uint16_t  rx2wc() ;
 
     void worker(unsigned instance) override;
+    void worker_wake(void) override;
 
 
     /***** interface to RX* controller *****/
