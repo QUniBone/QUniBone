@@ -55,7 +55,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf xz-utils
+            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf libc6-dev-armhf-cross xz-utils
 
       - name: Cross-compile QBUS
         run: ./crossbuild.sh

@@ -34,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf
+            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
 
       - name: Cross-compile ${{ matrix.platform }}
         run: ./crossbuild.sh ${{ matrix.flag }}
