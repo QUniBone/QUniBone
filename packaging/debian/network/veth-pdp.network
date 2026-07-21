@@ -1,0 +1,10 @@
+# The end the DELQA binds its raw socket to: up, no address of its own.
+[Match]
+Name=veth-pdp
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+DHCP=no
+LinkLocalAddressing=no

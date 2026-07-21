@@ -148,6 +148,81 @@ upset, replacing it with an own `qbone-growfs.service` that runs
 `growpart` + `resize2fs` before `multi-user.target` and disables itself is a
 dozen lines.
 
+## Emulated Ethernet needs eth0 as a plain NIC (legacy cpsw driver)
+
+The DELQA emulation binds a raw `AF_PACKET` socket to a host interface in
+promiscuous mode and carries the guest's several MAC addresses (the setup
+filter table plus MOP/DECnet multicast). To reach both the LAN and the
+BeagleBone at layer 2 — MOP boots from `mopd` on the BeagleBone, so this must
+be L2 — that interface has to be a Linux bridge port over a plain NIC. A
+bridge floods unknown-unicast and multicast to the DELQA's veth, so the guest
+is reachable at every address it programs.
+
+On the 6.12 kernel the AM335x CPSW binds the switchdev driver
+(`ti_cpsw_new`, `cpsw-switch`), which presents `eth0` as a hardware switch
+port. The kernel refuses to enslave a switch port to a software bridge
+(`ip link set eth0 master br0` → `Invalid argument`), so the bridge cannot be
+built. This is the whole difference from the Debian 8 setup, where the legacy
+`ti_cpsw` driver presented `eth0` as an ordinary, bridgeable NIC. macvlan is
+not a substitute: a macvlan child receives only its own single MAC, and the
+one mode that receives all MACs (`passthru`) cannot also reach the host.
+
+Both drivers are built into this kernel. The stock device tree enables the
+switch node (`&mac_sw`) and leaves the legacy node (`&mac`) disabled;
+`02_bbb_config/01_cape/am335x-boneblack-qbone.dts` flips that — disables
+`&mac_sw`, enables `&mac` as a one-slave dual-EMAC CPSW, and wires the PHY.
+
+Two things this took to get right:
+
+- **The file U-Boot loads.** rcn-ee U-Boot picks the base DTB by its own
+  `uboot_base_dtb_univ`, not by board-EEPROM detection: on this image it loads
+  `/boot/dtbs/<uname_r>/am335x-boneblack-uboot.dtb`, then applies the overlays
+  from `uEnv.txt`. The QBone DTB must be installed under that name; the base
+  `am335x-boneblack.dtb`, `-revd`, etc. are never loaded. `dtb=`/`fdtfile=` in
+  `uEnv.txt` do not override this while `enable_uboot_overlays=1`.
+- **The `-uboot` base.** `am335x-boneblack-qbone.dts` includes
+  `am335x-boneblack-uboot.dts`, not the plain `am335x-boneblack.dts`. The plain
+  variant pulls in HDMI/audio, whose McASP claims PIN100 — the PRUSS needs it,
+  and the PRU cores then fail to probe (`pin PIN100 already requested by
+  48038000.mcasp`), which stops the emulator. The `-uboot` variant has no
+  McASP, so the PRU pins are free.
+
+Build it from the on-board device-tree sources (present as
+`/opt/source/dtb-6.12.x`):
+
+    cd /opt/source/dtb-6.12.x
+    cp .../am335x-boneblack-qbone.dts src/arm/ti/omap/
+    make ARCH=arm CPP=cpp DTC=dtc src/arm/ti/omap/am335x-boneblack-qbone.dtb
+    cp src/arm/ti/omap/am335x-boneblack-qbone.dtb \
+       /boot/dtbs/<uname_r>/am335x-boneblack-uboot.dtb   # keep a .stock backup
+
+### The bridge, in systemd-networkd
+
+The image manages the network with `systemd-networkd`, so the bridge is built
+there, not in ifupdown (an `/etc/network/interfaces.d` stanza fights networkd
+and neither wins). The files are in `packaging/debian/network/`:
+
+    br0.netdev     bridge; MACAddress pinned to the uplink by qbone-setup
+    br0.network    DHCP on br0, ClientIdentifier=mac
+    eth0.network   eth0 is a bridge port, no address
+    veth-br.network   the controller veth's far end is a bridge port
+    veth-pdp.network  the DELQA's end: up, no address
+
+`qbone-network` creates the `veth-pdp`/`veth-br` pair; networkd enslaves
+`veth-br` and `eth0` to `br0`, and `br0` holds the host's DHCP address. The
+DELQA defaults its `interface` parameter to `veth-pdp`. networkd bridges
+default to STP off, so ports forward immediately and DHCP completes at boot.
+
+Verified on hardware: `eth0` a plain NIC, `br0 = eth0 + veth-br` holding the
+host address, the DELQA bound to `veth-pdp` in promiscuous mode. The remaining
+check is an end-to-end guest test (2.11BSD `qe0` pinging the BeagleBone and a
+LAN host).
+
+**Not yet automated in the package**: building and installing the DTB, pinning
+`br0`'s MAC in `qbone-setup`, and shipping the networkd files in place of the
+ifupdown bridge. The artifacts and procedure above are the reference for that
+work.
+
 ## What the image build applies
 
 In order, in the chroot:

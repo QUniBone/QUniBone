@@ -1,0 +1,6 @@
+# The emulated controller's veth: its far end is a bridge port.
+[Match]
+Name=veth-br
+
+[Network]
+Bridge=br0

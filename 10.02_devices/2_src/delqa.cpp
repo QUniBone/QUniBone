@@ -68,7 +68,10 @@ delqa_c::delqa_c() :
     type_name.value = "DELQA";
     log_label = "delqa";
 
-    interface.value = "eth0";
+    // A raw socket on the uplink cannot reach the host it runs on, so the
+    // controller gets an interface of its own: the veth the QBone package
+    // creates and joins to the bridge that carries the uplink.
+    interface.value = "veth-pdp";
     mac.value = "08:00:2b:aa:bb:cc";
     deqna_lock.value = false;
     activity_led.value = 3;

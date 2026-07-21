@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * am335x-boneblack-qbone.dts
+ *
+ * BeagleBone Black carrying a QBone cape, with eth0 driven by the legacy
+ * ti,cpsw driver instead of the cpsw-switch (switchdev) driver the stock
+ * device tree enables.
+ *
+ * The switchdev driver presents eth0 as a hardware switch port, which the
+ * kernel refuses to add to a Linux software bridge. The emulated DELQA needs a
+ * promiscuous interface carrying the guest's several MAC addresses, bridged to
+ * both the LAN and the BeagleBone itself; that requires a plain, bridgeable
+ * NIC, which the legacy driver provides.
+ *
+ * The QBone cape overlay (QBone.dtbo) is applied on top of this by U-Boot,
+ * unchanged.
+ */
+
+#include "am335x-boneblack-uboot.dts"
+
+/* Turn the switchdev controller off ... */
+&mac_sw {
+	status = "disabled";
+};
+
+&cpsw_port1 {
+	status = "disabled";
+};
+
+/* ... and bring up the same hardware as a legacy dual-EMAC CPSW with one
+ * active slave (the BeagleBone wires a single external port). */
+&mac {
+	slaves = <1>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&cpsw_default>;
+	pinctrl-1 = <&cpsw_sleep>;
+	status = "okay";
+};
+
+&davinci_mdio {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&davinci_mdio_default>;
+	pinctrl-1 = <&davinci_mdio_sleep>;
+	status = "okay";
+
+	qbone_ethphy0: ethernet-phy@0 {
+		reg = <0>;
+		/* GPIO reset as on the stock PHY node (rev C3 boards) */
+		reset-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <300>;
+		reset-deassert-us = <50000>;
+	};
+};
+
+&cpsw_emac0 {
+	phy-handle = <&qbone_ethphy0>;
+	phy-mode = "mii";
+};

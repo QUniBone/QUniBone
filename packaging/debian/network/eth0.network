@@ -1,0 +1,7 @@
+# The uplink is a bridge port and holds no address of its own.
+[Match]
+Name=eth0
+Type=ether
+
+[Network]
+Bridge=br0

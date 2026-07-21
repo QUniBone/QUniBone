@@ -1,0 +1,10 @@
+# The host's address lives on the bridge, not on eth0, so the BeagleBone and
+# the emulated machine reach each other over the bridge.
+[Match]
+Name=br0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+ClientIdentifier=mac
