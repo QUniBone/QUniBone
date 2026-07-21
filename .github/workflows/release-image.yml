@@ -18,6 +18,7 @@ on:
       base_image_url:
         description: 'rcn-ee base image URL (am335x-debian-13.x-base-v6.12-armhf-*.img.xz)'
         required: true
+        default: 'https://rcn-ee.com/rootfs/debian-armhf-13-base-v6.12/2026-07-15/am335x-debian-13.6-base-v6.12-armhf-2026-07-15-4gb.img.xz'
       assets_url:
         description: 'URL of a tar(.gz/.xz) with images/ and configs/ at top level'
         required: true
@@ -40,7 +41,7 @@ jobs:
   image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free up disk space
         # The base image, its 4G build headroom, and a working copy together
@@ -99,7 +100,7 @@ jobs:
               --notes "QBone appliance image, built from ${{ inputs.base_image_url }}"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qbone-dist-image
           path: qbone-dist.img.xz

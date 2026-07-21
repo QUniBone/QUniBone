@@ -26,7 +26,7 @@ jobs:
             flag: '-u'
             suffix: _u
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install packaging tools
         # build-deb.sh runs natively when dpkg-deb and dtc are present, and
@@ -64,7 +64,7 @@ jobs:
           dpkg-deb --control "$deb" /tmp/ctrl
           for s in postinst prerm postrm; do sh -n "/tmp/ctrl/$s"; done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qbone-${{ matrix.platform }}
           path: qbone_*_armhf.deb
