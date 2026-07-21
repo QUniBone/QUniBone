@@ -1,0 +1,22 @@
+[Unit]
+Description=QBone first-boot setup (network bridge, boot settings)
+Documentation=file:/usr/share/doc/qbone/README.Debian
+# eth0 has to exist so its MAC can be pinned into the bridge; networkd manages
+# it. Run before the emulator and its network so the bridge is in place first.
+After=systemd-networkd.service
+Wants=systemd-networkd.service
+Before=qbone-network.service qbone.service
+# The bridge is written once, on the first boot. qbone-setup --auto records
+# this when the network is configured, and this condition stops it re-running.
+ConditionPathExists=!/var/lib/qbone/.setup-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# --auto reboots between passes rather than asking, so the board configures
+# itself with no login. The first run writes the bridge and reboots; the next
+# finds it in place, records .setup-done and hands off to the qbone units.
+ExecStart=/usr/sbin/qbone-setup --auto
+
+[Install]
+WantedBy=multi-user.target

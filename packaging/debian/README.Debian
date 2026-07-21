@@ -47,6 +47,12 @@ asks for a reboot, because both the device tree and the bridge take effect
 only at boot. The second, after the reboot, finds everything in place and
 starts the services. Run it, reboot when it says to, and run it again.
 
+The distribution image does this without a login: qbone-setup.service runs
+"qbone-setup --auto", which reboots between the passes itself and records
+/var/lib/qbone/.setup-done when the network is configured, so it runs only
+until the board is set up. The unit ships disabled on a package install,
+where the operator runs qbone-setup by hand; the image enables it.
+
 Moving eth0 onto the bridge moves this board's address onto the bridge, and
 the device tree swap changes the Ethernet driver -- either could put a
 headless board out of reach if something is wrong. There is no live rollback:

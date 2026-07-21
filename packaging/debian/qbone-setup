@@ -33,10 +33,16 @@ NETDIR=/etc/systemd/network
 BASE_DTB=am335x-boneblack-uboot.dtb
 
 WANT_NET=yes
+AUTO=no
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-network|--no-bridge) WANT_NET=no ;;
-        *) echo "usage: $0 [--no-network]" >&2; exit 2 ;;
+        # unattended: reboot between passes instead of asking, and hand the
+        # hardware check and emulator startup to the enabled units. Used by
+        # qbone-setup.service so a distribution image configures itself with no
+        # login. It stops running once /var/lib/qbone/.setup-done exists.
+        --auto) AUTO=yes ;;
+        *) echo "usage: $0 [--no-network] [--auto]" >&2; exit 2 ;;
     esac
     shift
 done
@@ -240,8 +246,23 @@ fi
 # --------------------------------------------------- reboot between passes
 
 if [ -n "$NEED_REBOOT" ]; then
+    if [ "$AUTO" = yes ]; then
+        say "settings applied; rebooting to bring up the bridge"
+        systemctl reboot
+        exit 0
+    fi
     say "settings applied. Reboot, then run 'sudo qbone-setup' again to start"
     say "the services:  sudo reboot"
+    exit 0
+fi
+
+# Past the reboot point the network is fully configured. Unattended, that is
+# all this does: the enabled qbone-network and qbone units check the hardware
+# and start the emulator. Record that setup is done so the service stops here.
+if [ "$AUTO" = yes ]; then
+    mkdir -p /var/lib/qbone
+    : > /var/lib/qbone/.setup-done
+    say "network configured; the qbone service starts the emulator"
     exit 0
 fi
 

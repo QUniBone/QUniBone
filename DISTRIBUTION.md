@@ -237,7 +237,7 @@ In order, in the chroot:
    cockpit-packagekit`, and remove the orphaned `/var/www/html/Cockpit.html` -
    the emulator binds 80 and will not start behind nginx. Then install the
    operator toolset the appliance is run and debugged with: `apt install gdb
-   tcpdump tcsh tmux ckermit`. These belong to the image, not the qbone
+   tcpdump zsh tmux ckermit`. These belong to the image, not the qbone
    package, which stays limited to what the emulator and its setup script
    need.
 3. **`systemctl mask gpio-manager.service`** and `apt-mark hold gpiod`, or
@@ -250,7 +250,13 @@ In order, in the chroot:
    NOPASSWD, if wanted, goes in `/etc/sudoers.d/zz-qbone` - the name matters,
    because sudoers is last-match-wins and the image's own `admin` file sorts
    after any numeric prefix.
-7. **Install the `qbone` package** and enable both units.
+7. **Install the `qbone` package** and enable the units. The image enables
+   `qbone-setup.service` as well, so the board runs `qbone-setup --auto` on
+   first boot and configures its network bridge with no login - the one step
+   that cannot be baked, since the bridge pins the board's own uplink MAC. It
+   reboots itself between the setup passes and records
+   `/var/lib/qbone/.setup-done` when finished. A package install leaves the
+   unit disabled, where the operator drives `qbone-setup` by hand.
 8. **The apt repository** keyring and sources entry.
 9. **Identity reset**, last: truncate `/etc/machine-id` to zero bytes, remove
    `/etc/ssh/ssh_host_*`, clear shell history, apt lists and logs, and set
@@ -279,7 +285,23 @@ In order, in the chroot:
 
     crossbuild.sh      →  PRU firmware + demo binary
     build-deb.sh       →  qbone_*_armhf.deb
-    build-image.sh     →  qbone-<version>-<date>.img.xz + .sha256   (still to write)
+    build-image.sh     →  qbone-dist.img (a card-ready appliance image)
+
+`build-image.sh` turns the rcn-ee base image into the appliance. It takes a
+staging directory holding the base `base.img.xz`, the `qbone_*_armhf.deb`, an
+`images/` directory of disk images to ship, and a `configs/` directory of boot
+configurations that name them, and produces a flashable `.img`. All of the
+Linux work - loop-mounting the ext4 root, the armhf chroot, the resizes - runs
+in a privileged Docker container, since macOS can do none of it; on Apple
+Silicon the chroot runs under qemu-user-static. The script grows the root to
+make room, installs the package and the operator toolset, removes nginx and
+cockpit, builds and installs the legacy-Ethernet device tree, applies the
+uEnv boot settings, places the operating systems and their configurations
+under `/var/lib/qbone`, resets the machine identity, enables the services, and
+shrinks the filesystem back to fit. The bridge MAC is not baked in: it is
+pinned to the board's own uplink by `qbone-setup` at first boot. Write the
+result to a card with `dd`; rcn-ee's first-boot resize grows the root to fill
+it.
 
 `crossbuild.sh` used to fetch the PRU firmware from a live board over scp,
 because `clpru` only exists there, which made a release build depend on a
