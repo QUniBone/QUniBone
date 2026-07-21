@@ -1,71 +1,42 @@
 #!/bin/sh
 # One-shot setup for a freshly installed qbone package.
 #
-# Checks the hardware the emulator needs, gives the emulated Ethernet
-# controller a way onto the network, and starts the services. Safe to run
-# again: everything it does is checked before it is done.
+# Checks the hardware the emulator needs, puts the emulated Ethernet controller
+# on the network, and starts the services. Safe to run again: everything it
+# does is checked before it is done.
 #
-# Making the uplink a bridge port moves the host's address onto the bridge,
-# which is the one step that can put a headless board out of reach. It is
-# applied with a rollback armed first, so a board that loses its network
-# comes back on its own.
+# Two of the changes take effect only after a reboot, so this runs in two
+# passes. The first applies boot settings, swaps eth0 onto the legacy Ethernet
+# driver, and writes the bridge configuration; it then asks for a reboot. The
+# second, after the reboot, finds everything in place and starts the services.
+#
+# Why the driver swap: the DELQA emulation needs a promiscuous interface
+# carrying the guest's several MAC addresses, bridged to both the LAN and this
+# board. That needs a plain, bridgeable NIC. The stock 6.x device tree binds
+# the switchdev cpsw driver, whose eth0 is a hardware switch port the kernel
+# refuses to add to a software bridge, so eth0 is moved to the legacy ti,cpsw
+# driver by a device tree built here. See /usr/share/doc/qbone/README.Debian.
 #
 # usage:
-#   qbone-setup                 set up, bridging the uplink
-#   qbone-setup --no-bridge     set up without touching the network
-#   qbone-setup --revert-delay N  seconds before an unconfirmed bridge rolls
-#                                 back (default 90)
+#   qbone-setup                 set up, including the network
+#   qbone-setup --no-network    set up without touching the network
 
 set -e
 
-STATUS=/run/qbone-setup.status
-STANZA=/etc/network/interfaces.d/qbone
-
-# Applying the bridge runs detached, re-entering this script here. A dropped
-# session must not kill the change half way: the rollback would then fire on
-# a board that was other<wise fine.
-if [ "$1" = --internal-apply-bridge ]; then
-    UP=$2; BRIDGE=$3; MAC=$4
-    cat > $STANZA <<STANZAEOF
-# Written by qbone-setup. The bridge takes the uplink's address so the DHCP
-# lease does not change when the uplink becomes a bridge port.
-iface $UP inet manual
-
-auto $BRIDGE
-iface $BRIDGE inet dhcp
-	hwaddress ether $MAC
-	pre-up ip link add name $BRIDGE type bridge
-	pre-up ip link set $BRIDGE address $MAC
-	pre-up ip link set $BRIDGE type bridge forward_delay 0 || true
-	pre-up ip link set $UP up
-	pre-up ip link set $UP master $BRIDGE
-	post-down ip link set $UP nomaster || true
-	post-down ip link del $BRIDGE || true
-STANZAEOF
-    ifdown $UP >/dev/null 2>&1 || true
-    ifup $BRIDGE >/dev/null 2>&1 || true
-    sleep 5
-    GW=$(ip route show default | awk '/^default/ {print $3; exit}')
-    if [ -n "$GW" ] && ping -c 2 -W 3 "$GW" >/dev/null 2>&1; then
-        touch /run/qbone-setup-confirmed
-        rm -f $STANZA.bak
-        echo "ok $BRIDGE" > $STATUS
-    else
-        echo "failed" > $STATUS
-    fi
-    exit 0
-fi
-
-BRIDGE=br0
-REVERT_DELAY=90
-WANT_BRIDGE=yes
+UENV=/boot/uEnv.txt
 CONF=/etc/qbone/network.conf
+DTS=/usr/share/qbone/am335x-boneblack-qbone.dts
+NETSRC=/usr/share/qbone/network
+NETDIR=/etc/systemd/network
+# the file U-Boot loads on this image (uboot_base_dtb_univ), not the base or a
+# board-revision variant
+BASE_DTB=am335x-boneblack-uboot.dtb
 
+WANT_NET=yes
 while [ $# -gt 0 ]; do
     case "$1" in
-        --no-bridge) WANT_BRIDGE=no ;;
-        --revert-delay) REVERT_DELAY=$2; shift ;;
-        *) echo "usage: $0 [--no-bridge] [--revert-delay seconds]" >&2; exit 2 ;;
+        --no-network|--no-bridge) WANT_NET=no ;;
+        *) echo "usage: $0 [--no-network]" >&2; exit 2 ;;
     esac
     shift
 done
@@ -74,6 +45,8 @@ say() { echo "qbone-setup: $*"; }
 die() { echo "qbone-setup: $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "must run as root"
+
+NEED_REBOOT=
 
 # ------------------------------------------------------------ boot settings
 
@@ -85,14 +58,11 @@ die() { echo "qbone-setup: $*" >&2; exit 1; }
 
 capemgr() { ls -d /sys/devices/platform/bone_capemgr* >/dev/null 2>&1; }
 
-UENV=/boot/uEnv.txt
-
 # set_uenv KEY VALUE: make "KEY=VALUE" the active setting, whether the line is
 # absent, commented out, or set to something else.
 set_uenv() {
-    if grep -q "^$1=$2\$" $UENV; then
-        return 1                                  # already so
-    elif grep -q "^#\?$1=" $UENV; then
+    if grep -q "^$1=$2\$" $UENV; then return 1; fi
+    if grep -qE "^#?$1=" $UENV; then
         sed -i "s|^#\?$1=.*|$1=$2|" $UENV
     else
         echo "$1=$2" >> $UENV
@@ -103,25 +73,17 @@ set_uenv() {
 # comment_uenv KEY: leave the line in place but stop it taking effect
 comment_uenv() {
     grep -q "^$1=" $UENV || return 1
-    sed -i "s|^\($1=.*\)|#\1|" $UENV
+    sed -i "s|^$1=|#$1=|" $UENV
     return 0
 }
 
 configure_boot() {
     changed=
-
-    # The shipped PRU overlay names a compatible no driver has bound since
-    # 6.10, and applying it takes the PRUs away rather than providing them.
     comment_uenv uboot_overlay_pru && changed="$changed uboot_overlay_pru"
-
-    # The cape's pins are the eMMC's, HDMI's and audio's.
     for k in emmc video audio; do
         set_uenv "disable_uboot_overlay_$k" 1 && changed="$changed disable_$k"
     done
-
     set_uenv enable_uboot_overlays 1 && changed="$changed enable_overlays"
-
-    # Claim addr4 unless something else already holds it.
     if grep -q "^uboot_overlay_addr4=" $UENV &&
        ! grep -q "^uboot_overlay_addr4=QBone.dtbo\$" $UENV; then
         say "  uboot_overlay_addr4 is already set to something else; leaving it"
@@ -129,7 +91,6 @@ configure_boot() {
     else
         set_uenv uboot_overlay_addr4 QBone.dtbo && changed="$changed addr4"
     fi
-
     [ -n "$changed" ] || return 1
     say "  changed in $UENV:$changed"
     return 0
@@ -139,11 +100,149 @@ if ! capemgr && [ -f $UENV ]; then
     say "checking the boot settings"
     cp -n $UENV $UENV.qbone-orig 2>/dev/null || true
     if configure_boot; then
-        say "boot settings applied; the original is kept at $UENV.qbone-orig."
-        say "Reboot, then run qbone-setup again to finish."
-        exit 0
+        say "  boot settings applied; the original is kept at $UENV.qbone-orig"
+        NEED_REBOOT=yes
+    else
+        say "  boot settings already correct"
     fi
-    say "  boot settings already correct"
+fi
+
+# ------------------------------------------------ eth0 as a plain NIC (DTB)
+
+# The DTB is built from the device tree sources the base image ships in
+# /opt/source, so it follows whatever kernel is installed rather than being
+# pinned to one. It is installed under the name U-Boot loads.
+dt_src_dir() {
+    # /opt/source/dtb-<major>.<minor>.x for the running kernel
+    kv=$(uname -r | cut -d. -f1-2)
+    for d in /opt/source/dtb-${kv}.x /opt/source/dtb-${kv}; do
+        [ -d "$d/src/arm/ti/omap" ] && { echo "$d"; return 0; }
+    done
+    return 1
+}
+
+# eth0 already plain (legacy driver) if it carries no switchdev id
+eth0_is_plain() {
+    [ -e /sys/class/net/eth0 ] || return 1
+    ! ip -d link show eth0 2>/dev/null | grep -q "switchid"
+}
+
+# ETH_DTB_STATE, set by configure_ethernet_dtb: applied | present | plain |
+# unavailable
+configure_ethernet_dtb() {
+    ETH_DTB_STATE=unavailable
+    dtbdir=/boot/dtbs/$(uname -r)
+    target=$dtbdir/$BASE_DTB
+
+    # if it is already the legacy DTB, nothing to do
+    if [ -e "$target" ] &&
+       [ "$(fdtget "$target" \
+            /ocp/interconnect@4a000000/segment@0/target-module@100000/ethernet@0 \
+            status 2>/dev/null)" = okay ]; then
+        ETH_DTB_STATE=present
+        return 0
+    fi
+
+    src=$(dt_src_dir) || {
+        say "  no device tree sources under /opt/source for kernel $(uname -r);"
+        say "  cannot build the Ethernet device tree. The emulated controller"
+        say "  will not reach the network. Install the dtb source package, or"
+        say "  build $BASE_DTB by hand from $DTS."
+        return 1
+    }
+    for t in dtc cpp make; do
+        command -v $t >/dev/null 2>&1 || {
+            say "  $t is missing; cannot build the Ethernet device tree."
+            return 1
+        }
+    done
+    [ -r "$DTS" ] || { say "  $DTS is missing"; return 1; }
+
+    say "building the legacy-Ethernet device tree for $(uname -r)"
+    cp "$DTS" "$src/src/arm/ti/omap/"
+    dtb=$src/src/arm/ti/omap/am335x-boneblack-qbone.dtb
+    ( cd "$src" && make ARCH=arm CPP=cpp DTC=dtc \
+        src/arm/ti/omap/am335x-boneblack-qbone.dtb ) >/dev/null 2>&1 || {
+        say "  the device tree build failed"
+        return 1
+    }
+    [ -e "$dtb" ] || { say "  the device tree build produced no output"; return 1; }
+    [ -e "$target.stock" ] || cp "$target" "$target.stock"
+    cp "$dtb" "$target"
+    say "  installed $BASE_DTB (legacy ti,cpsw); the stock one is $BASE_DTB.stock"
+    ETH_DTB_STATE=applied
+    return 0
+}
+
+if ! capemgr; then
+    if configure_ethernet_dtb; then
+        [ "$ETH_DTB_STATE" = applied ] && NEED_REBOOT=yes
+    else
+        # cannot make eth0 bridgeable; do not touch the network below, or the
+        # networkd bridge would fail to enslave the switch port and take the
+        # board off the network
+        WANT_NET=no
+    fi
+else
+    ETH_DTB_STATE=plain
+fi
+
+# ------------------------------------------------------------- the bridge
+
+# uplink MAC, so the bridge keeps the same DHCP identity
+uplink() { ip route show default 2>/dev/null | awk '/^default/ {print $5; exit}'; }
+
+install_bridge() {
+    changed=
+    # the uplink whose driver we manage is eth0; a bridge over anything else is
+    # the operator's own setup
+    mac=$(cat /sys/class/net/eth0/address 2>/dev/null)
+    [ -n "$mac" ] || { say "  no eth0 to bridge"; return 1; }
+
+    # br0.netdev with the uplink MAC pinned in
+    tmp=$(mktemp)
+    sed "s|^# MACAddress set by qbone-setup.*|MACAddress=$mac|" \
+        "$NETSRC/br0.netdev" > "$tmp"
+    for f in br0.network eth0.network veth-br.network veth-pdp.network; do
+        cmp -s "$NETSRC/$f" "$NETDIR/$f" || { cp "$NETSRC/$f" "$NETDIR/$f"; changed=yes; }
+    done
+    cmp -s "$tmp" "$NETDIR/br0.netdev" || { cp "$tmp" "$NETDIR/br0.netdev"; changed=yes; }
+    rm -f "$tmp"
+
+    # remove an old ifupdown bridge stanza that would fight networkd
+    if [ -e /etc/network/interfaces.d/qbone ]; then
+        mv /etc/network/interfaces.d/qbone /etc/network/interfaces.d/qbone.disabled
+        say "  moved the old ifupdown bridge stanza aside"
+        changed=yes
+    fi
+
+    [ -n "$changed" ] || return 1
+    return 0
+}
+
+if [ $WANT_NET = yes ]; then
+    say "configuring the bridge (systemd-networkd)"
+    if install_bridge; then
+        say "  br0 = eth0 + veth-br; the host address moves onto br0 on reboot"
+        NEED_REBOOT=yes
+    else
+        say "  bridge already configured"
+    fi
+    # qbone-network only creates the veth pair; networkd enslaves it
+    if grep -q "^BRIDGE=." $CONF 2>/dev/null; then
+        sed -i "s|^BRIDGE=.*|BRIDGE=|" $CONF
+    fi
+else
+    say "leaving the network alone"
+    say "  the emulated machine will not reach the network until the bridge is set up"
+fi
+
+# --------------------------------------------------- reboot between passes
+
+if [ -n "$NEED_REBOOT" ]; then
+    say "settings applied. Reboot, then run 'sudo qbone-setup' again to start"
+    say "the services:  sudo reboot"
+    exit 0
 fi
 
 # ---------------------------------------------------------------- hardware
@@ -151,8 +250,6 @@ fi
 say "checking the hardware"
 
 if capemgr; then
-    # The overlay comes from the cape's EEPROM, and uio_pruss provides the
-    # PRU interface.
     [ -e /dev/uio0 ] || die "no /dev/uio0: the PRU UIO driver is not loaded, and
   the bus engine cannot run without it. Check that uio_pruss is available."
     cat /sys/devices/platform/bone_capemgr*/slots 2>/dev/null | grep -qi unibone ||
@@ -161,147 +258,29 @@ if capemgr; then
   this usually means the cape is not seated or not powered."
     say "  PRU and cape present"
 else
-    # The overlay is QBone.dtbo, and each piece it declares can be checked by
-    # name, which says which part is missing rather than that something is.
     ls -d /proc/device-tree/reserved-memory/qbone-ddr* >/dev/null 2>&1 ||
         die "the cape overlay is not applied: no qbone-ddr reserved-memory
   region. /lib/firmware/QBone.dtbo ships with this package and U-Boot applies
   it when uEnv.txt names it. Reboot if the boot settings were just changed."
-
     grep -q "\.pru\$" /sys/class/remoteproc/*/name 2>/dev/null ||
         die "no PRU remoteproc devices. The shipped PRU overlay overwrites the
   PRU-ICSS compatible with one no driver has bound since 6.10; uboot_overlay_pru
   in $UENV has to stay commented out."
-
     grep -qi qbone /sys/class/uio/*/name 2>/dev/null ||
         die "no PRU event device. uio_pdrv_genirq takes the compatible it binds
   to from a module parameter; /etc/modprobe.d/qbone.conf ships with this package
   and sets it. Try 'modprobe -r uio_pdrv_genirq; modprobe uio_pdrv_genirq'."
-
     say "  PRU, cape overlay and event device present"
-fi
 
-# ----------------------------------------------------------------- network
-
-. $CONF 2>/dev/null || true
-PDP_IF=${PDP_IF:-veth-pdp}
-PEER_IF=${PEER_IF:-veth-br}
-
-# the uplink is whichever interface carries the default route
-uplink() { ip route show default 2>/dev/null | awk '/^default/ {print $5; exit}'; }
-
-set_conf() {
-    # rewrite one KEY=value line in network.conf
-    if grep -q "^$1=" $CONF; then
-        sed -i "s|^$1=.*|$1=$2|" $CONF
-    else
-        echo "$1=$2" >> $CONF
+    # the Ethernet driver swap has to have taken effect for the bridge to work
+    if [ $WANT_NET = yes ] && ! eth0_is_plain; then
+        die "eth0 is still a switch port: the legacy-Ethernet device tree is not
+  in effect. If the boot settings or the device tree were just installed, reboot
+  and run qbone-setup again."
     fi
-}
-
-existing_bridge() {
-    # A board that is already bridged routes out through the bridge itself,
-    # so the uplink this finds is the bridge and there is nothing to build.
-    up=$(uplink)
-    [ -n "$up" ] || return 0
-    if [ -e "/sys/class/net/$up/bridge" ]; then
-        echo "$up"
-        return 0
-    fi
-    # otherwise the uplink may already be a port on one
-    if [ -e "/sys/class/net/$up/master" ]; then
-        m=$(basename "$(readlink -f /sys/class/net/$up/master)")
-        [ -e "/sys/class/net/$m/bridge" ] && echo "$m"
-    fi
-    return 0
-}
-
-if [ $WANT_BRIDGE = no ]; then
-    say "leaving the network alone (--no-bridge)"
-    say "  the emulated machine will reach this board but not the network"
-else
-    UP=$(uplink)
-    [ -n "$UP" ] || die "no default route, so there is no uplink to bridge.
-  Configure networking first, or re-run with --no-bridge."
-
-    HAVE=$(existing_bridge)
-    if [ -n "$HAVE" ]; then
-        BRIDGE=$HAVE
-        say "uplink $UP is already on bridge $BRIDGE, keeping it"
-    else
-        # 802.11 does not bridge the way Ethernet does: a station may not
-        # forward frames with a source address the access point never saw.
-        if [ -e /sys/class/net/$UP/wireless ] || [ -e /sys/class/net/$UP/phy80211 ]; then
-            die "the uplink $UP is wireless, and a wireless link cannot carry
-  the emulated machine's own address. Give the board a wired uplink, or run
-  with --no-bridge to leave the network alone."
-        fi
-
-        MAC=$(cat /sys/class/net/$UP/address)
-        say "bridging uplink $UP into $BRIDGE (address $MAC)"
-
-        [ -e $STANZA ] && cp $STANZA $STANZA.bak
-        rm -f $STATUS /run/qbone-setup-confirmed
-
-        # Arm the rollback before anything changes, detached from this shell
-        # so it still runs if the session goes away.
-        REVERT=/run/qbone-setup-revert
-        cat > $REVERT <<REVERTEOF
-#!/bin/sh
-sleep $REVERT_DELAY
-[ -e /run/qbone-setup-confirmed ] && exit 0
-logger -t qbone-setup "network did not come back, reverting"
-ifdown $BRIDGE 2>/dev/null || true
-rm -f $STANZA
-[ -e $STANZA.bak ] && mv $STANZA.bak $STANZA
-ifup $UP 2>/dev/null || ifup -a 2>/dev/null || true
-echo reverted > $STATUS
-REVERTEOF
-        chmod 755 $REVERT
-        setsid $REVERT </dev/null >/dev/null 2>&1 &
-        say "  rollback armed: reverts in ${REVERT_DELAY}s unless the gateway answers"
-
-        # The change itself is detached too, so losing this session cannot
-        # interrupt it. Watch the status file rather than doing the work here.
-        setsid "$0" --internal-apply-bridge "$UP" "$BRIDGE" "$MAC" \
-            </dev/null >/dev/null 2>&1 &
-        say "  applying; this session may stall briefly as the address moves"
-
-        waited=0
-        while [ $waited -lt $REVERT_DELAY ] && [ ! -s $STATUS ]; do
-            sleep 2
-            waited=$((waited + 2))
-        done
-
-        case "$(cat $STATUS 2>/dev/null)" in
-            ok*)
-                BRIDGE=$(cut -d" " -f2 $STATUS)
-                say "  bridge $BRIDGE is up and the gateway answers"
-                ;;
-            failed|reverted)
-                die "the bridge did not come up and the board has reverted to
-  its previous configuration. Look at $STANZA, then try again from the serial
-  console, or run with --no-bridge."
-                ;;
-            *)
-                die "no result after ${REVERT_DELAY}s. The change is still
-  running detached and the board reverts on its own if it does not succeed;
-  reconnect and read $STATUS."
-                ;;
-        esac
-    fi
-    set_conf BRIDGE $BRIDGE
 fi
 
 # --------------------------------------------------------- emulator startup
-
-# The emulated controller binds to the veth this script creates, which is what
-# it is built to default to. A different name here is one the operator also
-# has to set on the delqa, in the web interface or in the configuration the
-# service applies at startup.
-if [ "$PDP_IF" != veth-pdp ]; then
-    say "note: set the delqa's \"interface\" parameter to $PDP_IF"
-fi
 
 say "starting services"
 systemctl enable qbone-network qbone >/dev/null 2>&1 || true
@@ -310,7 +289,8 @@ systemctl restart qbone
 
 sleep 2
 if systemctl is-active --quiet qbone; then
-    ADDR=$(ip -4 -o addr show ${BRIDGE:-$(uplink)} 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+    IFACE=br0; [ -e /sys/class/net/br0 ] || IFACE=$(uplink)
+    ADDR=$(ip -4 -o addr show "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
     say "running: http://${ADDR:-this board}/"
 else
     die "the emulator did not start. journalctl -u qbone"

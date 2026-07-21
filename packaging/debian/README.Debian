@@ -41,24 +41,23 @@ latter only when told which compatible to look for, which
 If qbone-setup reports a missing piece it names which one, and each maps to
 one of these settings.
 
-Bridging the uplink moves this board's address onto the bridge, which is
-the one step that could put a headless board out of reach. qbone-setup arms
-a rollback before it makes the change and only cancels it once the gateway
-answers through the new bridge; a board that goes silent restores its old
-configuration by itself within ninety seconds.
+qbone-setup runs in two passes. The first applies the boot settings, builds
+the legacy-Ethernet device tree and writes the bridge configuration; it then
+asks for a reboot, because both the device tree and the bridge take effect
+only at boot. The second, after the reboot, finds everything in place and
+starts the services. Run it, reboot when it says to, and run it again.
 
-Both the change and the rollback run detached, so losing the session that
-started them does not interrupt either. The address is preserved across the
-change, so an ssh session usually survives it; if it does not, reconnect and
-read /run/qbone-setup.status.
-
-A wireless uplink is refused: a station may not forward frames carrying an
-address the access point never saw, so the emulated machine cannot be
-reached over one.
+Moving eth0 onto the bridge moves this board's address onto the bridge, and
+the device tree swap changes the Ethernet driver -- either could put a
+headless board out of reach if something is wrong. There is no live rollback:
+the changes are applied by the reboot, so keep a serial console to hand the
+first time. The stock device tree is kept as
+/boot/dtbs/<kernel>/am335x-boneblack-uboot.dtb.stock; restoring it and
+rebooting returns eth0 to its original driver.
 
 To skip the network entirely:
 
-    sudo qbone-setup --no-bridge
+    sudo qbone-setup --no-network
 
 The emulated machine can then reach this board, which is enough for a local
 mopd, but not the rest of the network.
@@ -66,15 +65,21 @@ mopd, but not the rest of the network.
 What it sets up
 ---------------
 
-The controller binds a raw socket to its own interface, because one on the
-uplink cannot reach the BeagleBone itself. That interface is a veth pair,
-created from /etc/qbone/network.conf before the emulator starts, with its
-far end on the bridge.
+The emulated Ethernet controller needs a promiscuous interface that carries
+the guest's several MAC addresses and reaches both the LAN and this board at
+layer 2 (mopd boots the guest over Ethernet). That is a Linux bridge over a
+plain NIC. The stock 6.x kernel binds the switchdev cpsw driver, whose eth0
+is a hardware switch port the kernel will not add to a software bridge, so
+qbone-setup builds a device tree that binds the legacy ti,cpsw driver and
+installs it as the DTB U-Boot loads.
 
-The bridge stanza is written to /etc/network/interfaces.d/qbone, with the
-uplink's own address pinned so the DHCP lease does not change. A worked
-example is in /usr/share/doc/qbone/examples/interfaces-bridge for anyone
-configuring it by hand.
+The bridge itself is systemd-networkd: br0 carries eth0 (the uplink) and
+veth-br (the controller's veth), and holds this board's DHCP address, pinned
+to the uplink's MAC so the lease does not change. qbone-network creates the
+veth pair from /etc/qbone/network.conf before the emulator starts; the
+controller binds to veth-pdp. The networkd files live in
+/etc/systemd/network/{br0.netdev,br0.network,eth0.network,veth-br.network,
+veth-pdp.network}.
 
 Running
 -------

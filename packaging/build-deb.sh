@@ -71,7 +71,7 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/lib/systemd/system \
     $STAGE/lib/firmware \
     $STAGE/usr/sbin \
-    $STAGE/usr/share/doc/qbone/examples \
+    $STAGE/usr/share/qbone/network \
     $STAGE/var/lib/qbone/images \
     $STAGE/var/lib/qbone/configs
 
@@ -91,8 +91,13 @@ install -m 644 packaging/debian/network.conf $STAGE/etc/qbone/
 install -m 755 packaging/debian/qbone-network $STAGE/usr/sbin/
 install -m 755 packaging/debian/qbone-setup $STAGE/usr/sbin/
 install -m 644 packaging/debian/qbone-network.service $STAGE/lib/systemd/system/
-install -m 644 packaging/debian/examples/interfaces-bridge $STAGE/usr/share/doc/qbone/examples/
 install -m 644 packaging/debian/README.Debian $STAGE/usr/share/doc/qbone/
+# qbone-setup builds this into the loaded DTB so eth0 is a plain, bridgeable NIC
+install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts $STAGE/usr/share/qbone/
+# the bridge that carries the emulated machine, installed by qbone-setup
+install -m 644 packaging/debian/network/br0.netdev packaging/debian/network/br0.network \
+    packaging/debian/network/eth0.network packaging/debian/network/veth-br.network \
+    packaging/debian/network/veth-pdp.network $STAGE/usr/share/qbone/network/
 
 # Both cape overlays: capemgr loads UniBone-00B0.dtbo from the cape's EEPROM
 # up to 4.19, and U-Boot applies QBone.dtbo by name after it.
