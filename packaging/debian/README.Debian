@@ -100,8 +100,10 @@ The web interface answers on port 80. State - disk images, saved
 configurations and settings.json - lives in /var/lib/qbone.
 
 The distribution image ships a root filesystem shrunk to fit; qbone-resize
-extends the last partition and grows the ext4 to fill the card on the first
-boot, then records /var/lib/qbone/.resized and does not run again.
+grows it to fill the card in two stages across a reboot - extend the
+partition on the first boot, grow the ext4 into it once the kernel has
+re-read the table on the next - then records /var/lib/qbone/.resized and
+does not run again.
 
 /usr/bin/qbone serves the web interface and has no menu. The machine a board
 comes up as is a saved configuration: add "--config <name>" to the unit's

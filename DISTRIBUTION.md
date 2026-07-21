@@ -136,11 +136,15 @@ board's first boot.
     truncate                        cut the image file
 
 The rcn-ee *base* image carries no first-boot resize of its own (the flasher
-images do, this one does not), so `qbone-resize.service` provides it: on the
-first boot it extends the last partition with `sfdisk`, updates the kernel's
-view with `partx -u`, and grows the mounted ext4 with `resize2fs` - all from
-util-linux, no `growpart`/cloud-guest-utils dependency - then records
-`/var/lib/qbone/.resized` and does not run again.
+images do, this one does not), so `qbone-resize.service` provides it, in two
+stages across a reboot. First boot: extend the partition with `sfdisk`.
+Later boot, once the kernel has re-read the enlarged table: grow the ext4
+with `resize2fs`, then record `/var/lib/qbone/.resized`. The two stages
+matter - growing the filesystem in the same boot the partition was extended
+can leave it a few blocks larger than the on-disk partition the kernel reads
+back, which then "exceeds size of device" and will not mount. The
+`qbone-setup` first-boot reboot is the barrier; all tools are from
+util-linux, no `growpart`/cloud-guest-utils.
 
 ## Emulated Ethernet needs eth0 as a plain NIC (legacy cpsw driver)
 

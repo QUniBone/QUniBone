@@ -1,11 +1,17 @@
 #!/bin/sh
-# Grow the root partition and filesystem to fill the card, once.
+# Grow the root partition and filesystem to fill the card.
 #
-# The distribution image ships a root filesystem shrunk to fit; on the first
-# boot this extends the last partition to the end of the card and grows the
-# ext4 online. sfdisk and partx (util-linux) do the online partition resize -
-# no growpart/cloud-guest-utils needed - and resize2fs grows a mounted ext4.
-# A marker under /var/lib/qbone stops it running again.
+# Done in two stages across a reboot, to stay safe. Stage one extends the
+# partition to the end of the disk. Stage two, on a later boot, grows the
+# filesystem into it - but only once the kernel has re-read the enlarged
+# partition table from disk. Growing the filesystem in the same boot the
+# partition was extended is what bricks the card: the live partition size the
+# kernel reports online can be a few blocks larger than the on-disk table it
+# reads back at the next boot, and a filesystem grown to the larger figure
+# then "exceeds size of device" and will not mount. Between the stages the
+# filesystem is smaller than its partition, which always mounts. The reboot
+# qbone-setup performs on the first boot is the barrier; if there is none, the
+# filesystem is simply grown on the next reboot instead.
 
 set -e
 
@@ -19,12 +25,23 @@ case "$ROOT" in
 esac
 DISK=/dev/$(lsblk -no PKNAME "$ROOT")
 PART=$(echo "$ROOT" | grep -o '[0-9]*$')
+KNAME=$(basename "$ROOT")
 
-# extend the partition to the end of the disk (start unchanged), then tell the
-# kernel the new size without a reread it would refuse on the mounted disk
-echo ", +" | sfdisk -N "$PART" --no-reread "$DISK" || true
-partx -u "$DISK" || true
-resize2fs "$ROOT" || true
+disk_sectors=$(blockdev --getsz "$DISK")
+part_start=$(cat "/sys/class/block/$KNAME/start")
+part_sectors=$(blockdev --getsz "$ROOT")
+free=$(( disk_sectors - part_start - part_sectors ))
 
+if [ "$free" -gt 4096 ]; then
+    # stage one: extend the partition on disk. The filesystem is left alone;
+    # it grows on the next boot, when the kernel has re-read this table.
+    echo ", +" | sfdisk -N "$PART" --no-reread "$DISK"
+    partx -u "$DISK" 2>/dev/null || true
+    exit 0
+fi
+
+# stage two: the partition already fills the disk, so its table has been
+# re-read and resize2fs grows the filesystem to a size that fits.
+resize2fs "$ROOT"
 mkdir -p /var/lib/qbone
 : > "$MARKER"
