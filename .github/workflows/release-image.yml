@@ -16,12 +16,13 @@ on:
   workflow_dispatch:
     inputs:
       base_image_url:
-        description: 'rcn-ee base image URL (am335x-debian-13.x-base-v6.12-armhf-*.img.xz)'
+        description: 'base image URL (rcn-ee am335x debian-13 base-v6.12 armhf, mirrored on vaxbusters)'
         required: true
-        default: 'https://rcn-ee.com/rootfs/debian-armhf-13-base-v6.12/2026-07-15/am335x-debian-13.6-base-v6.12-armhf-2026-07-15-4gb.img.xz'
+        default: 'https://vaxbusters.org/qbone/base-v6.12-armhf.img.xz'
       assets_url:
         description: 'URL of a tar(.gz/.xz) with images/ and configs/ at top level'
         required: true
+        default: 'https://vaxbusters.org/qbone/qbone-assets.tar.gz'
       release_tag:
         description: 'Tag for the GitHub Release the image is published under (e.g. image-2026-07-21)'
         required: true
