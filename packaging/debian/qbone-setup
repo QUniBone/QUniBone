@@ -214,6 +214,10 @@ install_bridge() {
     done
     cmp -s "$tmp" "$NETDIR/br0.netdev" || { cp "$tmp" "$NETDIR/br0.netdev"; changed=yes; }
     rm -f "$tmp"
+    # networkd reads its configuration as the systemd-network user; the mktemp
+    # source is private, so the copied file inherits 0600 and networkd cannot
+    # read it. Make it world-readable like the files copied from the package.
+    chmod 644 "$NETDIR/br0.netdev"
 
     # remove an old ifupdown bridge stanza that would fight networkd
     if [ -e /etc/network/interfaces.d/qbone ]; then
