@@ -173,7 +173,7 @@ echo "-- enabling the services (offline, from the host)"
 # qbone-setup.service runs qbone-setup --auto on first boot so the image
 # configures its network bridge with no login; the image enables it, a package
 # install leaves it disabled
-systemctl --root=/mnt enable qbone-network.service qbone.service qbone-setup.service qbone-leds.service >/dev/null 2>&1 || true
+systemctl --root=/mnt enable qbone-network.service qbone.service qbone-setup.service qbone-leds.service qbone-resize.service >/dev/null 2>&1 || true
 # the USB gadget serial getty spins on a tty that is not reliably present and
 # wedges the console; the appliance is reached over the physical UART, the web
 # interface and ssh. Mask the GPIO daemon's unit too - nothing here uses it.
@@ -187,8 +187,16 @@ if [ -n "$RESOLV_LINK" ]; then
     rm -f /mnt/etc/resolv.conf
     ln -s "$RESOLV_LINK" /mnt/etc/resolv.conf
 fi
-: > /mnt/etc/machine-id
+# "uninitialized" (not an empty file) is what makes systemd mark the next boot
+# as first boot, so sshd-keygen.service (ConditionFirstBoot=yes) generates the
+# host keys before ssh starts. An empty file skips that, ssh then fails until
+# something else makes keys.
+echo uninitialized > /mnt/etc/machine-id
 rm -f /mnt/etc/ssh/ssh_host_*
+# The base image regenerates ssh host keys through bbbio-set-sysconf when this
+# flag is present, and it reboots to do so - an extra first-boot reboot that
+# sshd-keygen.service already makes unnecessary. Drop the flag.
+rm -f /mnt/etc/bbb.io/ssh_regenerate
 echo qbone > /mnt/etc/hostname
 sed -i 's/\bBeagleBone\b/qbone/g; s/127\.0\.1\.1.*/127.0.1.1\tqbone/' /mnt/etc/hosts 2>/dev/null || true
 rm -f /mnt/var/lib/qbone/settings.json

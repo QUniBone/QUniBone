@@ -25,6 +25,10 @@ ExecStart=/usr/bin/qbone --port 80 --webroot /usr/share/qbone/frontend \
 LimitRTPRIO=99
 LimitMEMLOCK=infinity
 Restart=no
+# Answering SIGTERM shuts the device set down in order, but a stop must never
+# be able to hang a reboot: if the process has not exited in time - e.g. a
+# SIGTERM caught mid-startup - systemd sends SIGKILL and the reboot proceeds.
+TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
 

@@ -1,0 +1,30 @@
+#!/bin/sh
+# Grow the root partition and filesystem to fill the card, once.
+#
+# The distribution image ships a root filesystem shrunk to fit; on the first
+# boot this extends the last partition to the end of the card and grows the
+# ext4 online. sfdisk and partx (util-linux) do the online partition resize -
+# no growpart/cloud-guest-utils needed - and resize2fs grows a mounted ext4.
+# A marker under /var/lib/qbone stops it running again.
+
+set -e
+
+MARKER=/var/lib/qbone/.resized
+[ -e "$MARKER" ] && exit 0
+
+ROOT=$(findmnt -no SOURCE /)
+case "$ROOT" in
+    /dev/mmcblk*p[0-9]* | /dev/sd*[0-9]) ;;
+    *) exit 0 ;;   # unrecognised root device; leave it alone
+esac
+DISK=/dev/$(lsblk -no PKNAME "$ROOT")
+PART=$(echo "$ROOT" | grep -o '[0-9]*$')
+
+# extend the partition to the end of the disk (start unchanged), then tell the
+# kernel the new size without a reread it would refuse on the mounted disk
+echo ", +" | sfdisk -N "$PART" --no-reread "$DISK" || true
+partx -u "$DISK" || true
+resize2fs "$ROOT" || true
+
+mkdir -p /var/lib/qbone
+: > "$MARKER"

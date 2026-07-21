@@ -128,25 +128,19 @@ Decide this deliberately rather than by default.
 
 ## Decision 4: minimal now, full-sized on first boot
 
-The base image already expands its root filesystem on first boot, so the
-mechanism exists and the job is to avoid breaking it while making the
-published artifact small.
+`build-image.sh` shrinks the published artifact and grows it back on the
+board's first boot.
 
     resize2fs -M                    shrink the filesystem to its contents
     sfdisk                          move the partition end down to match
     truncate                        cut the image file
-    xz -9                           compress
 
-A base install plus the emulator and one sample should land near 1.5 GB
-uncompressed and a few hundred MB compressed, from a 4 GB starting image.
-
-Verify rather than assume which unit performs the growth on this particular
-rcn-ee build, and confirm it still fires after the shrink - a resize service
-that keys off a flag file, a partition number, or a size comparison can all
-be upset by having the partition table rewritten underneath it. If it is
-upset, replacing it with an own `qbone-growfs.service` that runs
-`growpart` + `resize2fs` before `multi-user.target` and disables itself is a
-dozen lines.
+The rcn-ee *base* image carries no first-boot resize of its own (the flasher
+images do, this one does not), so `qbone-resize.service` provides it: on the
+first boot it extends the last partition with `sfdisk`, updates the kernel's
+view with `partx -u`, and grows the mounted ext4 with `resize2fs` - all from
+util-linux, no `growpart`/cloud-guest-utils dependency - then records
+`/var/lib/qbone/.resized` and does not run again.
 
 ## Emulated Ethernet needs eth0 as a plain NIC (legacy cpsw driver)
 

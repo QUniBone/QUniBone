@@ -1,0 +1,15 @@
+[Unit]
+Description=Grow the root filesystem to fill the card (once)
+Documentation=file:/usr/share/doc/qbone/README.Debian
+# root has to be writable; run before the emulator so it sees the full disk
+After=systemd-remount-fs.service local-fs.target
+Before=qbone.service
+ConditionPathExists=!/var/lib/qbone/.resized
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/qbone-resize
+
+[Install]
+WantedBy=sysinit.target
