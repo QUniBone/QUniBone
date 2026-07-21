@@ -315,11 +315,20 @@ is an x86-64 binary inside an i386 installer, so that container is amd64
 whatever the host is and carries a 32-bit C library to unpack it. The
 `prussdrv` headers, formerly scp'd from the board as well, are in the tree.
 
-A build therefore needs this repository and Docker, and nothing else.
-`.github/workflows/build.yml` runs it on every push: cross-compile both
-platforms, rebuild the firmware from clean and require the two builds to
-agree, package, and check the maintainer scripts parse. Publishing runs on
-tags only and skips itself unless a registry token is configured.
+A build therefore needs this repository and Docker, and nothing else. Three
+workflows drive it:
+
+- `.github/workflows/build.yml` runs on every push and pull request:
+  cross-compile both platforms, rebuild the firmware from clean and require the
+  two builds to agree, package, and check the maintainer scripts parse.
+- `.github/workflows/release-deb.yml` runs on a `v*` tag: build the QBUS
+  package, check the tag matches the changelog version, attach the `.deb` to a
+  GitHub Release, and push it to the Forgejo Debian registry (skipped unless a
+  registry token is configured).
+- `.github/workflows/release-image.yml` is dispatched by hand: it builds the
+  package, downloads the base image and the OS-images/configs assets from URLs
+  given at dispatch, runs `build-image.sh`, and attaches the compressed
+  appliance image to a GitHub Release.
 
 **The firmware this produces is not bit-identical to what the board built.**
 Same compiler version, three extra instructions, all in the C runtime startup

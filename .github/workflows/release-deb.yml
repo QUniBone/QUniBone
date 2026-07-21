@@ -1,0 +1,74 @@
+name: release-deb
+
+# Tag-driven package release. Push a v* tag whose version matches the top of
+# packaging/debian/changelog; this builds the QBUS qbone package, attaches it to
+# a GitHub Release for the tag, and pushes it to the Forgejo Debian registry so
+# `apt install qbone` sees it. The registry push skips itself when no token is
+# configured, so the GitHub Release still happens on a fork or unconfigured repo.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the GitHub Release and upload the asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf
+
+      - name: Cross-compile QBUS
+        run: ./crossbuild.sh
+
+      - name: Build the package
+        run: ./packaging/build-deb.sh
+
+      - name: Check the tag matches the changelog version
+        # The package version comes from packaging/debian/changelog. A tag that
+        # disagrees would ship a differently-numbered artifact than the tag
+        # claims, so require the changelog version to be the tag, or the tag
+        # with a Debian revision (v1.6.0 -> 1.6.0 or 1.6.0-1).
+        run: |
+          deb=$(ls qbone_*_armhf.deb)
+          debver=$(echo "$deb" | sed -n 's/^qbone_\(.*\)_armhf\.deb$/\1/p')
+          tag=${GITHUB_REF_NAME#v}
+          echo "tag=$tag changelog=$debver"
+          case "$debver" in
+            "$tag"|"$tag"-*) : ;;
+            *) echo "tag $GITHUB_REF_NAME does not match changelog version $debver" >&2; exit 1 ;;
+          esac
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deb=$(ls qbone_*_armhf.deb)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$deb" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$deb" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
+      - name: Publish to the Debian registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          REGISTRY_URL: ${{ vars.DEBIAN_REGISTRY_URL }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ] || [ -z "$REGISTRY_URL" ]; then
+            echo "no registry configured - set the FORGEJO_TOKEN secret and the"
+            echo "DEBIAN_REGISTRY_URL variable to publish; skipping."
+            exit 0
+          fi
+          deb=$(ls qbone_*_armhf.deb)
+          curl --fail-with-body -H "Authorization: token $REGISTRY_TOKEN" \
+              --upload-file "$deb" \
+              "$REGISTRY_URL/pool/trixie/main/upload"

@@ -1,0 +1,105 @@
+name: release-image
+
+# On-demand appliance image. build-image.sh turns the rcn-ee base image into a
+# card-ready QBone image, and it needs inputs that are not in the repository:
+# the base image, and the sample operating-system disk images with their boot
+# configurations. Supply those as URLs when dispatching. The qbone package is
+# built here from the checked-out sources. The finished image is compressed and
+# attached to a GitHub Release under the tag you name.
+#
+# The assets tarball must expand to `images/` and `configs/` directories at its
+# top level (tar autodetects gzip/xz):
+#   images/   the disk images to ship (*.dsk, *.rl02, ...)
+#   configs/  the boot configurations (*.json) that name them
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_image_url:
+        description: 'rcn-ee base image URL (am335x-debian-13.x-base-v6.12-armhf-*.img.xz)'
+        required: true
+      assets_url:
+        description: 'URL of a tar(.gz/.xz) with images/ and configs/ at top level'
+        required: true
+      release_tag:
+        description: 'Tag for the GitHub Release the image is published under (e.g. image-2026-07-21)'
+        required: true
+      grow:
+        description: 'Build headroom while customising (GROW)'
+        required: false
+        default: '4G'
+      margin_mb:
+        description: 'Free space left in the root filesystem after the shrink (MARGIN_MB)'
+        required: false
+        default: '400'
+
+permissions:
+  contents: write   # create the GitHub Release and upload the image
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        # The base image, its 4G build headroom, and a working copy together
+        # run to well over ten gigabytes; reclaim the runner's preinstalled
+        # toolchains so the loop-mounted build has room.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf xz-utils
+
+      - name: Cross-compile QBUS
+        run: ./crossbuild.sh
+
+      - name: Build the package
+        run: ./packaging/build-deb.sh
+
+      - name: Assemble the staging directory
+        run: |
+          mkdir -p dist/images dist/configs
+          cp qbone_*_armhf.deb dist/
+          echo "-- fetching the base image"
+          curl --fail-with-body -L -o dist/base.img.xz "${{ inputs.base_image_url }}"
+          echo "-- fetching the OS images and configs"
+          curl --fail-with-body -L -o /tmp/assets.tar "${{ inputs.assets_url }}"
+          tar -xf /tmp/assets.tar -C dist
+          test -d dist/images && test -d dist/configs \
+            || { echo "assets tarball must contain images/ and configs/ at top level" >&2; exit 1; }
+          ls dist dist/images dist/configs
+
+      - name: Build the image
+        env:
+          GROW: ${{ inputs.grow }}
+          MARGIN_MB: ${{ inputs.margin_mb }}
+        run: DIST=./dist OUT=./qbone-dist.img ./packaging/build-image.sh
+
+      - name: Compress the image
+        run: xz -T0 qbone-dist.img
+
+      - name: Publish the image to a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          img=qbone-dist.img.xz
+          tag='${{ inputs.release_tag }}'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$img" --clobber
+          else
+            gh release create "$tag" "$img" \
+              --title "$tag" \
+              --notes "QBone appliance image, built from ${{ inputs.base_image_url }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qbone-dist-image
+          path: qbone-dist.img.xz

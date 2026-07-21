@@ -1,13 +1,14 @@
 name: build
 
-# Builds the emulator and the qbone package from nothing but this repository.
-# The PRU firmware is compiled here too (crossbuild.sh fetches the TI code
-# generation tools into a container), so no BeagleBone takes part.
+# Continuous integration: build the emulator and the qbone package from nothing
+# but this repository. The PRU firmware is compiled here too (crossbuild.sh
+# fetches the TI code generation tools into a container), so no BeagleBone takes
+# part. Releasing is separate: release-deb.yml on a tag, release-image.yml on
+# demand.
 
 on:
   push:
     branches: ['**']
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -28,9 +29,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install packaging tools
+        # build-deb.sh runs natively when dpkg-deb and dtc are present, and
+        # cross-compiles qbone-leds with the armhf gcc; supply all three.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev device-tree-compiler
+          sudo apt-get install -y --no-install-recommends \
+            dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf
 
       - name: Cross-compile ${{ matrix.platform }}
         run: ./crossbuild.sh ${{ matrix.flag }}
@@ -64,30 +68,3 @@ jobs:
         with:
           name: qbone-${{ matrix.platform }}
           path: qbone_*_armhf.deb
-
-  publish:
-    # Tags only, and only once a repository token is configured. Without the
-    # secret the job is skipped, so a fork or an unconfigured checkout builds
-    # and tests without trying to publish anything.
-    needs: package
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: qbone-QBUS
-
-      - name: Upload to the Debian registry
-        env:
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          REGISTRY_URL: ${{ vars.DEBIAN_REGISTRY_URL }}
-        run: |
-          if [ -z "$REGISTRY_TOKEN" ] || [ -z "$REGISTRY_URL" ]; then
-            echo "no registry configured - set the FORGEJO_TOKEN secret and the"
-            echo "DEBIAN_REGISTRY_URL variable to publish; skipping."
-            exit 0
-          fi
-          deb=$(ls qbone_*_armhf.deb)
-          curl --fail-with-body -H "Authorization: token $REGISTRY_TOKEN" \
-              --upload-file "$deb" \
-              "$REGISTRY_URL/pool/trixie/main/upload"
