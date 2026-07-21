@@ -123,12 +123,13 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     echo "Section: misc"
     echo "Priority: optional"
     echo "Architecture: armhf"
-    # The emulator itself is static and needs nothing. These are for the two
-    # scripts: qbone-network builds the veth pair with ip(8), and qbone-setup
-    # writes an interfaces.d stanza and brings the bridge up with ifup(8).
-    # Spelled out here rather than taken from packaging/debian/control, whose
-    # ${misc:Depends} is a debhelper substitution this build does not perform.
-    echo "Depends: iproute2, ifupdown, bridge-utils"
+    # The emulator itself is static and needs nothing. iproute2 is for the
+    # ip(8) calls in qbone-network and qbone-setup; device-tree-compiler, cpp
+    # and make let qbone-setup build the legacy-Ethernet device tree. The
+    # operator toolset and the nginx removal belong to the image preparation,
+    # not here. Spelled out rather than taken from packaging/debian/control,
+    # whose ${misc:Depends} is a debhelper substitution this build does not do.
+    echo "Depends: iproute2, device-tree-compiler, cpp, make"
     echo "Maintainer: Hans Huebner <hans.huebner@gmail.com>"
     echo "Installed-Size: $INSTALLED_KB"
     sed -n '/^Description:/,$p' packaging/debian/control

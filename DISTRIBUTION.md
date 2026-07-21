@@ -24,10 +24,10 @@ armed rollback, and starts the services.
 `debian-installation.md` records the rest - the settings and masks the cape
 needs, and the three ways a stock image wedges a board with a cape fitted.
 
-The gap between that and an image is small and specific: the four fixes
+The gap between that and an image is small and specific: the fixes
 `qbone-setup` does not do (`gpio-manager`, the `ttyGS0` getty, nginx on port
-80, the persistent journal), a user, sample disk images, and a build that
-produces the same artifact twice.
+80, the persistent journal), the operator toolset, a user, sample disk images,
+and a build that produces the same artifact twice.
 
 ## Decision 1: how the image is produced
 
@@ -232,10 +232,14 @@ In order, in the chroot:
    `uboot_overlay_addr4=QBone.dtbo`. `qbone-setup` already writes exactly
    this; the image build can call it or share its code rather than
    duplicating the edits.
-2. **Free port 80.** `apt purge nginx nginx-common libnginx-mod-http-fancyindex
-   cockpit-ws cockpit-system cockpit-packagekit`, and remove the orphaned
-   `/var/www/html/Cockpit.html`. The emulator's web interface binds 80 and
-   will not start behind nginx.
+2. **Packages.** Free port 80 for the web interface: `apt purge nginx
+   nginx-common libnginx-mod-http-fancyindex cockpit-ws cockpit-system
+   cockpit-packagekit`, and remove the orphaned `/var/www/html/Cockpit.html` -
+   the emulator binds 80 and will not start behind nginx. Then install the
+   operator toolset the appliance is run and debugged with: `apt install gdb
+   tcpdump tcsh tmux ckermit`. These belong to the image, not the qbone
+   package, which stays limited to what the emulator and its setup script
+   need.
 3. **`systemctl mask gpio-manager.service`** and `apt-mark hold gpiod`, or
    purge `gpiod` outright - nothing in the image needs it.
 4. **`systemctl mask serial-getty@ttyGS0.service`**, which is the failure
