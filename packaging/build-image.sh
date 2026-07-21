@@ -173,7 +173,7 @@ echo "-- enabling the services (offline, from the host)"
 # qbone-setup.service runs qbone-setup --auto on first boot so the image
 # configures its network bridge with no login; the image enables it, a package
 # install leaves it disabled
-systemctl --root=/mnt enable qbone-network.service qbone.service qbone-setup.service >/dev/null 2>&1 || true
+systemctl --root=/mnt enable qbone-network.service qbone.service qbone-setup.service qbone-leds.service >/dev/null 2>&1 || true
 # the USB gadget serial getty spins on a tty that is not reliably present and
 # wedges the console; the appliance is reached over the physical UART, the web
 # interface and ssh. Mask the GPIO daemon's unit too - nothing here uses it.

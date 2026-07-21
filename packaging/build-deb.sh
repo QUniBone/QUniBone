@@ -33,6 +33,7 @@ if ! command -v dpkg-deb >/dev/null 2>&1 || ! command -v dtc >/dev/null 2>&1; th
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         device-tree-compiler xz-utils \
+        gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
     && rm -rf /var/lib/apt/lists/*
 EOF
     fi
@@ -94,6 +95,11 @@ install -m 644 packaging/debian/qbone-network.service $STAGE/lib/systemd/system/
 # runs qbone-setup --auto unattended; enabled on the distribution image, left
 # disabled on a package install where the operator drives qbone-setup by hand
 install -m 644 packaging/debian/qbone-setup.service $STAGE/lib/systemd/system/
+# status LEDs: a tiny standalone daemon, cross-compiled here. Enabled on the
+# image; shipped disabled in the package.
+arm-linux-gnueabihf-gcc -O2 -Wall -o $STAGE/usr/sbin/qbone-leds \
+    packaging/debian/qbone-leds.c
+install -m 644 packaging/debian/qbone-leds.service $STAGE/lib/systemd/system/
 install -m 644 packaging/debian/README.Debian $STAGE/usr/share/doc/qbone/
 # qbone-setup builds this into the loaded DTB so eth0 is a plain, bridgeable NIC
 install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts $STAGE/usr/share/qbone/

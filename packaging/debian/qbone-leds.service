@@ -1,0 +1,15 @@
+[Unit]
+Description=QBone status LED indicator
+Documentation=file:/usr/share/doc/qbone/README.Debian
+# Start early so the LEDs signal progress from the beginning of boot. It only
+# needs /var (for the setup marker) and systemd (always up for a unit).
+After=local-fs.target
+
+[Service]
+Type=exec
+ExecStart=/usr/sbin/qbone-leds
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=sysinit.target

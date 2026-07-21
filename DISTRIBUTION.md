@@ -260,7 +260,8 @@ In order, in the chroot:
    that cannot be baked, since the bridge pins the board's own uplink MAC. It
    reboots itself between the setup passes and records
    `/var/lib/qbone/.setup-done` when finished. A package install leaves the
-   unit disabled, where the operator drives `qbone-setup` by hand.
+   unit disabled, where the operator drives `qbone-setup` by hand. The image
+   also enables `qbone-leds.service`, the status-LED indicator.
 8. **The apt repository** keyring and sources entry.
 9. **Identity reset**, last: truncate `/etc/machine-id` to zero bytes, remove
    `/etc/ssh/ssh_host_*`, clear shell history, apt lists and logs, and set

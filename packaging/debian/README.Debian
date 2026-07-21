@@ -110,6 +110,24 @@ qbone-network creates and joins to the bridge qbone-setup builds from the
 uplink. Rename it in /etc/qbone/network.conf and the delqa's "interface"
 parameter has to follow.
 
+Status LEDs
+-----------
+
+qbone-leds drives three of the four green user LEDs - usr0, usr2, usr3 - to
+show how far the board is through bring-up, and leaves usr1 on its mmc0
+trigger so SD-card activity is still visible. A growing blink marks progress
+and a bouncing light means the emulator is up:
+
+    X00   booting        blink
+    XX0   configuring    blink
+    XXX   starting       blink
+    bounce               ready
+
+The phase comes from systemd and /var/lib/qbone/.setup-done, so the bounce
+simply means qbone.service is active. The unit is enabled on the distribution
+image and shipped disabled in the package; `systemctl disable --now
+qbone-leds` returns the LEDs to the kernel on the next boot.
+
 Admin password
 --------------
 
