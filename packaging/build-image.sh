@@ -122,6 +122,19 @@ apt-get -qq purge -y gpiod 2>/dev/null || true
 KIMG=$(dpkg-query -W -f='${Package}\n' 'linux-image-*' 2>/dev/null | grep bone | head -1)
 [ -n "$KIMG" ] && apt-mark hold "$KIMG" >/dev/null 2>&1 || true
 
+# Passwordless root at the physical console. It is reachable over ssh neither
+# with that empty password nor at all: the drop-in denies empty-password
+# logins and root logins. sshd_config includes this directory before its own
+# body and takes the first value for each keyword, so these win. Ordinary
+# password logins (the base image's debian account) still work, for onboarding.
+passwd -d root
+install -d -m 755 /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/10-qbone.conf <<'EOF'
+PermitRootLogin no
+PermitEmptyPasswords no
+EOF
+chmod 644 /etc/ssh/sshd_config.d/10-qbone.conf
+
 # boot settings the cape needs, the same ones qbone-setup writes
 U=/boot/uEnv.txt
 set_uenv() {

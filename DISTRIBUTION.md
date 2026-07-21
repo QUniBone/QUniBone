@@ -245,11 +245,15 @@ In order, in the chroot:
 4. **`systemctl mask serial-getty@ttyGS0.service`**, which is the failure
    that presents as a broken systemd.
 5. **Persistent journal** - `mkdir /var/log/journal`.
-6. **The `qbone` user**, in `sudo` and `admin`, with the password expired so
-   first login forces a change. Delete the image's default `debian` user.
-   NOPASSWD, if wanted, goes in `/etc/sudoers.d/zz-qbone` - the name matters,
-   because sudoers is last-match-wins and the image's own `admin` file sorts
-   after any numeric prefix.
+6. **Passwordless root and the ssh policy.** `passwd -d root` gives the
+   physical console a passwordless root login, and a
+   `/etc/ssh/sshd_config.d/10-qbone.conf` drop-in denies root logins and
+   empty-password logins over ssh (`PermitRootLogin no`, `PermitEmptyPasswords
+   no`), so that empty password never reaches the network. Ordinary password
+   logins - the base image's `debian` account - still work for onboarding.
+   `sshd_config` includes the drop-in directory before its own body and takes
+   the first value for each keyword, so the drop-in wins. Personal accounts
+   are not baked in; `personalize-image.sh` adds one to a copy of the image.
 7. **Install the `qbone` package** and enable the units. The image enables
    `qbone-setup.service` as well, so the board runs `qbone-setup --auto` on
    first boot and configures its network bridge with no login - the one step
