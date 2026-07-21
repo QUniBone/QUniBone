@@ -113,9 +113,10 @@ parameter has to follow.
 Status LEDs
 -----------
 
-qbone-leds drives three of the four green user LEDs - usr0, usr2, usr3 - to
-show how far the board is through bring-up, and leaves usr1 on its mmc0
-trigger so SD-card activity is still visible. A growing blink marks progress
+qbone-leds drives a contiguous run of three green user LEDs - usr0, usr1,
+usr2 - to show how far the board is through bring-up, and relocates SD-card
+activity (the mmc0 trigger, normally usr1) to usr3, whose eMMC trigger is
+idle since the board runs from the SD card. A growing blink marks progress
 and a bouncing light means the emulator is up:
 
     X00   booting        blink

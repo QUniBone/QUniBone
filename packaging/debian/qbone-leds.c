@@ -1,9 +1,10 @@
 /* qbone-leds.c - QBone status indicator on three BeagleBone user LEDs.
  *
- * Shows how far the board is through bring-up on three of the four green user
- * LEDs - usr0, usr2, usr3 - and leaves usr1 to the kernel's mmc0 trigger so
- * SD-card activity is still visible. A growing blink marks progress; a
- * bouncing light means the emulator is up:
+ * Shows how far the board is through bring-up on a contiguous run of three
+ * user LEDs - usr0, usr1, usr2. SD-card activity (the kernel's mmc0 trigger,
+ * normally on usr1) is relocated to usr3, whose default eMMC trigger is
+ * useless here since the board runs from the SD card. A growing blink marks
+ * progress; a bouncing light means the emulator is up:
  *
  *     X00   booting        blink, 0.5 s
  *     XX0   configuring    blink, 0.5 s
@@ -28,7 +29,10 @@
 #include <unistd.h>
 
 #define NLED 3
-static const char *want[NLED] = { "usr0", "usr2", "usr3" };
+static const char *want[NLED] = { "usr0", "usr1", "usr2" };
+/* SD-card activity is moved off usr1 (an indicator LED now) onto usr3 */
+static const char *mmc_led = "usr3";
+static const char *mmc_trigger = "mmc0";
 static int bri_fd[NLED] = { -1, -1, -1 };
 static char on_val[16] = "1";
 
@@ -58,6 +62,12 @@ static void setup_leds(void)
 		return;
 	struct dirent *e;
 	while ((e = readdir(d))) {
+		if (ends_with(e->d_name, mmc_led)) {
+			char p[512];
+			snprintf(p, sizeof p, "%s/%s/trigger", base, e->d_name);
+			write_path(p, mmc_trigger);
+			continue;
+		}
 		for (int i = 0; i < NLED; i++) {
 			if (bri_fd[i] >= 0 || !ends_with(e->d_name, want[i]))
 				continue;
