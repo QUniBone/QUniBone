@@ -1,8 +1,12 @@
 [Unit]
 Description=PDP-11 Qbus device emulator
 Documentation=file:/usr/share/doc/qbone/README.Debian
-After=network.target qbone-network.service
+After=network.target qbone-network.service bbbio-set-sysconf.service
 Requires=qbone-network.service
+# bbbio-set-sysconf may reboot on a first boot to apply base-image settings; if
+# it does, the emulator must not have started, because a SIGTERM caught in its
+# PRU startup is uninterruptible and would hang the reboot. Ordering after it
+# means the emulator starts only on a boot where it has nothing left to do.
 
 [Service]
 Type=simple

@@ -193,10 +193,14 @@ fi
 # something else makes keys.
 echo uninitialized > /mnt/etc/machine-id
 rm -f /mnt/etc/ssh/ssh_host_*
-# The base image regenerates ssh host keys through bbbio-set-sysconf when this
-# flag is present, and it reboots to do so - an extra first-boot reboot that
-# sshd-keygen.service already makes unnecessary. Drop the flag.
-rm -f /mnt/etc/bbb.io/ssh_regenerate
+# The base image processes several first-boot actions through bbbio-set-sysconf
+# and reboots for each: regenerating ssh host keys (ssh_regenerate) and growing
+# the root filesystem (growpart/growpart_done). sshd-keygen.service and
+# qbone-resize.service now do both without those reboots - and the base's
+# reboot lands while qbone is mid-startup, wedged in a PRU syscall, hanging the
+# reboot. Drop the flags so bbbio-set-sysconf has nothing to reboot for.
+rm -f /mnt/etc/bbb.io/ssh_regenerate \
+      /mnt/etc/bbb.io/growpart /mnt/etc/bbb.io/growpart_done
 echo qbone > /mnt/etc/hostname
 sed -i 's/\bBeagleBone\b/qbone/g; s/127\.0\.1\.1.*/127.0.1.1\tqbone/' /mnt/etc/hosts 2>/dev/null || true
 rm -f /mnt/var/lib/qbone/settings.json
