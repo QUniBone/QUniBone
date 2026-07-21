@@ -4,6 +4,8 @@
 # modified for cross compile and remote debugging on BBB
 
 PROG = demo
+# the same emulation, served over the web interface with no menu and no terminal
+PROG_WEB = qbone-web
 # QUNIBONE_DIR from environment
 QUNIBONE_ROOT = $(QUNIBONE_DIR)
 
@@ -181,6 +183,7 @@ CIVETWEB_DIR= $(QUNIBONE_ROOT)/91_3rd_party/civetweb
 PICOJSON_DIR= $(QUNIBONE_ROOT)/91_3rd_party/picojson
 CCFLAGS+= -DWEBUI -I$(WEB_SRC_DIR) -I$(CIVETWEB_DIR) -I$(PICOJSON_DIR)
 OBJECTS+= $(OBJDIR)/webserver.o	\
+	$(OBJDIR)/weblog.o	\
 	$(OBJDIR)/webapi.o	\
 	$(OBJDIR)/webevents.o	\
 	$(OBJDIR)/webconsole.o	\
@@ -201,12 +204,12 @@ print-%  : ; @echo $* = $($*)
 
 
 
-all:	version $(OBJDIR)/$(PROG)
+all:	version $(OBJDIR)/$(PROG) $(OBJDIR)/$(PROG_WEB)
 
 pru:	$(PRU0_CODE_LIST) $(PRU1_CODE_LIST)
 
 clean:
-	rm -f $(OBJDIR)/$(PROG) $(OBJECTS) $(PRU_DEPLOY_DIR)/*
+	rm -f $(OBJDIR)/$(PROG) $(OBJDIR)/$(PROG_WEB) $(OBJECTS) $(OBJDIR)/main_demo.o $(OBJDIR)/main_qbone_web.o $(PRU_DEPLOY_DIR)/*
 	rm -rf $(OBJDIR)/*
 
 .PHONY: all pru clean
@@ -223,11 +226,21 @@ version:
 #	gcc -MM $(CCFLAGS) $< >$(OBJDIR)*.c > ***.d
 
 # executable depends on its objects AND the PRU objects
-$(OBJDIR)/$(PROG) : pru $(OBJECTS)
-	$(CC) -o $@ $(OBJECTS) $(LDFLAGS)
+$(OBJDIR)/$(PROG) : pru $(OBJECTS) $(OBJDIR)/main_demo.o
+	$(CC) -o $@ $(OBJECTS) $(OBJDIR)/main_demo.o $(LDFLAGS)
+	file $@
+
+$(OBJDIR)/$(PROG_WEB) : pru $(OBJECTS) $(OBJDIR)/main_qbone_web.o
+	$(CC) -o $@ $(OBJECTS) $(OBJDIR)/main_qbone_web.o $(LDFLAGS)
 	# force recompile on next build
 	rm -f $(OBJDIR)/compile_timestamp.o
 	file $@
+
+$(OBJDIR)/main_demo.o : main_demo.cpp application.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/main_qbone_web.o : main_qbone_web.cpp application.hpp
+	$(CC) $(CCFLAGS) $< -o $@
 
 
 $(OBJDIR)/application.o :  application.cpp application.hpp $(PRU_DEPLOY_DIR)/$(PRU0_CODE) $(PRU_DEPLOY_DIR)/$(PRU1_CODE)
@@ -476,6 +489,9 @@ $(OBJDIR)/compile_timestamp.o :  $(COMMON_SRC_DIR)/compile_timestamp.cpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/webserver.o :  $(WEB_SRC_DIR)/webserver.cpp $(WEB_SRC_DIR)/webserver.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/weblog.o :  $(WEB_SRC_DIR)/weblog.cpp $(WEB_SRC_DIR)/weblog.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/webapi.o :  $(WEB_SRC_DIR)/webapi.cpp $(WEB_SRC_DIR)/webserver.hpp $(WEB_SRC_DIR)/webevents.hpp $(WEB_SRC_DIR)/webconsole.hpp device_configuration.hpp
