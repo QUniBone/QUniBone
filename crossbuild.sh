@@ -34,6 +34,13 @@ PRU_IMAGE=qunibone-pru-cgt
 # moving to a newer one is a change to be measured, not a version bump.
 PRU_CGT_VERSION=2.3.1
 
+# Build containers write into the mounted tree as this user, so the generated
+# firmware and objects are owned by the caller rather than by root. Docker
+# Desktop maps bind-mount ownership to the host user on its own; a Linux host
+# (a CI runner) does not, and a root-owned tree then breaks the touch and the
+# header-stamp write that follow the build.
+DOCKER_USER="$(id -u):$(id -g)"
+
 SUFFIX=_q
 PLATFORM=QBUS
 DEPLOY=0
@@ -101,7 +108,8 @@ if [ -z "$(ls "$PRU_DEPLOY_DIR"/*_array.c 2>/dev/null || true)" ] \
         || [ -z "$(ls "$PRU_DEPLOY_DIR"/*.out 2>/dev/null || true)" ]; then
     echo "Building PRU firmware with clpru $PRU_CGT_VERSION ..."
     for prudir in pru0 pru1${SUFFIX}; do
-        docker run --rm --platform linux/amd64 -v "$PWD:/qunibone" \
+        docker run --rm --platform linux/amd64 --user "$DOCKER_USER" \
+            -v "$PWD:/qunibone" \
             -w "/qunibone/10.01_base/2_src/$prudir" $PRU_IMAGE \
             make QUNIBONE_DIR=/qunibone QUNIBONE_PLATFORM=$PLATFORM all
     done
@@ -134,7 +142,8 @@ if [ $CLEAN = 1 ]; then
     rm -rf "$OBJDIR"
 fi
 
-docker run --rm -v "$PWD:/qunibone" -w /qunibone/10.03_app_demo/2_src $IMAGE \
+docker run --rm --user "$DOCKER_USER" -v "$PWD:/qunibone" \
+    -w /qunibone/10.03_app_demo/2_src $IMAGE \
     make -f makefile$SUFFIX -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" \
         QUNIBONE_DIR=/qunibone \
         MAKE_CONFIGURATION=RELEASE \
