@@ -295,14 +295,12 @@ fi
 
 # --------------------------------------------------------- emulator startup
 
-# The controller binds a raw socket to its own interface. Say so at startup,
-# rather than leaving it on the default the source tree uses.
-if ! grep -q "^p interface" /etc/qbone/startup.cmd 2>/dev/null; then
-    say "pointing the emulated controller at $PDP_IF"
-    cat >> /etc/qbone/startup.cmd <<CMDEOF
-sd delqa
-p interface $PDP_IF
-CMDEOF
+# The emulated controller binds to the veth this script creates, which is what
+# it is built to default to. A different name here is one the operator also
+# has to set on the delqa, in the web interface or in the configuration the
+# service applies at startup.
+if [ "$PDP_IF" != veth-pdp ]; then
+    say "note: set the delqa's \"interface\" parameter to $PDP_IF"
 fi
 
 say "starting services"

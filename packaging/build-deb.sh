@@ -87,7 +87,6 @@ install -m 644 10.05_web/3_frontend/favicon.ico 10.05_web/3_frontend/favicon.svg
     10.05_web/3_frontend/android-chrome-512x512.png \
     10.05_web/3_frontend/site.webmanifest $STAGE/usr/share/qbone/frontend/
 install -m 644 packaging/debian/qbone.service $STAGE/lib/systemd/system/
-install -m 644 packaging/debian/startup.cmd $STAGE/etc/qbone/
 install -m 644 packaging/debian/network.conf $STAGE/etc/qbone/
 install -m 755 packaging/debian/qbone-network $STAGE/usr/sbin/
 install -m 755 packaging/debian/qbone-setup $STAGE/usr/sbin/
@@ -132,12 +131,30 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
 
 # files under /etc, which dpkg must not overwrite once they have been edited
 {
-    echo "/etc/qbone/startup.cmd"
     echo "/etc/qbone/network.conf"
     echo "/etc/modprobe.d/qbone.conf"
     echo "/etc/modules-load.d/qbone.conf"
 } > $STAGE/DEBIAN/conffiles
 
+cat > $STAGE/DEBIAN/preinst <<'PREINST'
+#!/bin/sh
+set -e
+# The emulator took its startup commands from this file while it was the menu
+# program. The service has no menu, and the machine a board comes up as is a
+# saved configuration, so the file is obsolete: dpkg leaves a conffile behind
+# when a package stops shipping it, and this removes it.
+if [ -e /etc/qbone/startup.cmd ]; then
+    # The helper also clears dpkg's own record of the conffile, but it acts
+    # only when the version being replaced is older than its guard. Reinstalls
+    # and rebuilds of one version leave the file behind, so remove it either
+    # way: nothing reads it any more.
+    if [ -x /usr/bin/dpkg-maintscript-helper ] \
+            && dpkg-maintscript-helper supports rm_conffile 2>/dev/null; then
+        dpkg-maintscript-helper rm_conffile /etc/qbone/startup.cmd 1.6.0-1~ -- "$@" || true
+    fi
+    rm -f /etc/qbone/startup.cmd
+fi
+PREINST
 cat > $STAGE/DEBIAN/postinst <<'POSTINST'
 #!/bin/sh
 set -e
@@ -178,7 +195,7 @@ if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
 fi
 POSTRM
-chmod 755 $STAGE/DEBIAN/postinst $STAGE/DEBIAN/prerm $STAGE/DEBIAN/postrm
+chmod 755 $STAGE/DEBIAN/preinst $STAGE/DEBIAN/postinst $STAGE/DEBIAN/prerm $STAGE/DEBIAN/postrm
 
 # md5sums over everything outside DEBIAN
 ( cd $STAGE && find . -type f ! -path "./DEBIAN/*" -printf "%P\0" \

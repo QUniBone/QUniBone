@@ -86,8 +86,18 @@ others:
     systemctl restart qbone
 
 The web interface answers on port 80. State - disk images, saved
-configurations and settings.json - lives in /var/lib/qbone. The commands the
-emulator runs at startup are in /etc/qbone/startup.cmd.
+configurations and settings.json - lives in /var/lib/qbone.
+
+/usr/bin/qbone serves the web interface and has no menu. The machine a board
+comes up as is a saved configuration: add "--config <name>" to the unit's
+ExecStart to apply one at startup. /usr/bin/qbone-demo is the same emulation
+driven from a terminal menu, for bus latch, master/slave and device exerciser
+work; it needs an operator on stdin and is not what the service runs.
+
+The emulated Ethernet controller binds to veth-pdp, the interface
+qbone-network creates and joins to the bridge qbone-setup builds from the
+uplink. Rename it in /etc/qbone/network.conf and the delqa's "interface"
+parameter has to follow.
 
 Admin password
 --------------
