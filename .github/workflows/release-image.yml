@@ -85,7 +85,11 @@ jobs:
         run: DIST=./dist OUT=./qbone-dist.img ./packaging/build-image.sh
 
       - name: Compress the image
-        run: xz -T0 qbone-dist.img
+        # build-image.sh writes the image as root from its privileged container;
+        # take ownership so xz can set the compressed file's group, then compress.
+        run: |
+          sudo chown "$(id -u):$(id -g)" qbone-dist.img
+          xz -T0 qbone-dist.img
 
       - name: Publish the image to a GitHub Release
         env:
