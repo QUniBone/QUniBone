@@ -2,10 +2,11 @@ name: release-deb
 
 # Tag-driven package release. Push a v* tag whose version matches the top of
 # packaging/debian/changelog; this builds both boards' packages (qbone for QBUS,
-# unibone for UNIBUS), attaches them to a GitHub Release for the tag, and pushes
-# them to the Forgejo Debian registry so `apt install` sees them. The registry
-# push skips itself when no token is configured, so the GitHub Release still
-# happens on a fork or unconfigured repo.
+# unibone for UNIBUS), attaches them to the tag's GitHub Release, and pushes them
+# to the apt repository so `apt install`/`apt upgrade` see them. The apt push
+# skips itself when the deploy key/host are not configured, so the GitHub
+# Release still happens on a fork. The release-image workflow attaches the two
+# appliance images to the same release.
 
 on:
   push:
@@ -13,6 +14,10 @@ on:
 
 permissions:
   contents: write   # create the GitHub Release and upload the assets
+
+# The base OS version the images are built on, named in the shared release note.
+env:
+  BASE_VERSION: 'Debian 13.6, base-v6.12 armhf (2026-07-15)'
 
 jobs:
   release:
@@ -56,8 +61,8 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" *_armhf.deb --clobber
           else
-            gh release create "$GITHUB_REF_NAME" *_armhf.deb \
-              --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" *_armhf.deb --title "$GITHUB_REF_NAME" \
+              --notes "qbone and unibone packages and appliance images. Image base: $BASE_VERSION."
           fi
 
       - name: Publish to the apt repository

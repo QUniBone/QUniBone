@@ -1,19 +1,23 @@
 name: release-image
 
-# On-demand appliance images for both boards - qbone (QBUS) and unibone
-# (UNIBUS). build-image.sh turns the rcn-ee base image into a card-ready image;
-# the base image and each board's OS-images/configs are fetched from the repo
-# Actions variables BASE_IMAGE_URL, ASSETS_URL_QBONE and ASSETS_URL_UNIBONE.
-# Each asset set expands to images/ and configs/ directories at its top level.
-# Both images are compressed and attached to a GitHub Release under the tag you
-# name.
+# Appliance images for both boards - qbone (QBUS) and unibone (UNIBUS) - built
+# for every release. On a v* tag each image is built from that tag's package and
+# attached to the tag's GitHub Release, beside the .debs, so a downloaded image
+# always carries the release's package version. build-image.sh turns the rcn-ee
+# base image into a card-ready image; the base image and each board's
+# OS-images/configs come from the Actions variables BASE_IMAGE_URL,
+# ASSETS_URL_QBONE and ASSETS_URL_UNIBONE (each set expands to images/ and
+# configs/ at its top level). workflow_dispatch rebuilds images for an existing
+# tag on demand.
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag for the GitHub Release the images are published under (e.g. image-2026-07-22)'
-        required: true
+        description: 'Release tag to (re)build images for (defaults to the pushed tag)'
+        required: false
       grow:
         description: 'Build headroom while customising (GROW)'
         required: false
@@ -89,8 +93,8 @@ jobs:
 
       - name: Build the image
         env:
-          GROW: ${{ inputs.grow }}
-          MARGIN_MB: ${{ inputs.margin_mb }}
+          GROW: ${{ inputs.grow || '4G' }}
+          MARGIN_MB: ${{ inputs.margin_mb || '400' }}
           NAME: ${{ matrix.board }}
           # pre-configure the board's apt source (URL/key from private repo
           # variables, so the public workflow carries no repository URL)
@@ -111,11 +115,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           img=${{ matrix.board }}-dist.img.xz
-          tag='${{ inputs.release_tag }}'
-          # both matrix legs target one release; create is best-effort (the other
-          # leg may already have made it), then each uploads its own asset
+          tag='${{ inputs.release_tag || github.ref_name }}'
+          # the deb and image jobs both target this one release; create is
+          # best-effort (release-deb usually makes it first), then upload the asset
           gh release create "$tag" --title "$tag" \
-            --notes "QBone and UniBone appliance images. Base: $BASE_VERSION." 2>/dev/null || true
+            --notes "qbone and unibone packages and appliance images. Image base: $BASE_VERSION." 2>/dev/null || true
           gh release upload "$tag" "$img" --clobber
 
       - uses: actions/upload-artifact@v7
