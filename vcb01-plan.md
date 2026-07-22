@@ -286,6 +286,30 @@ register, and the hardware cursor following the pointer.
 **5 — Integration.** Web UI device page, parameters through the web API,
 packaging, and documentation.
 
+## What the layout was checked against
+
+Lee K. Gleason's `setlin.mac`, written for the RSXstation and linked from that
+write-up, drives a real board and agrees with every constant here:
+
+| | the program | this emulation |
+|---|---|---|
+| CSR, cursor X | 177200, 177202 | registers 0, 1 |
+| CRTC pointer, data | 177210, 177212 | registers 4, 5 |
+| interrupt controller status | 177216 | register 7 |
+| video memory | 16000000..16777777 | bank 016, 256 KB |
+| scanline map | 0x3F800 into the bank | `MAP_LW` 0xFE00, longwords |
+| cursor bitmap | 0x3FFE0 into the bank | `CURSOR_LW` 0xFFF8 |
+| a map entry | one 16-bit word per screen line | two 11-bit entries per longword |
+
+It programs the CRTC by writing the pointer and then the data, loads the map
+linearly so screen line N shows buffer line N, and takes the top 8 KB of the
+bank through KISAR6 to reach the map and the cursor.
+
+Its CRTC values, which the write-up credits to the Vintage Computer Forum:
+horizontal total 41, displayed 32, sync position 34, sync width 6; vertical
+total 51, adjust 10, displayed 50, sync position 50; mode 4, maximum scan line
+15, cursor start 0, cursor end 1.
+
 ## Test software
 
 RSX-11M+ supplies the environment the RSXstation programs were written for:
@@ -338,9 +362,12 @@ Worth doing, but nothing depends on them.
   cycle; QBone commits it when `INTR()` is scheduled. Two sources becoming
   ready between the schedule and the acknowledge would deliver the earlier
   source's vector.
-- **CRTC programming.** The CRTC registers are recorded and used for cursor
-  geometry. Screen size stays 1024 x 864 rather than being derived from the
-  programmed timings.
+- **How tall the screen is.** The renderer draws 864 lines, which is what SIMH
+  uses. The RSXstation write-up calls the board 1024 x 768, and the CRTC values
+  it loads give 50 displayed rows of 16 scan lines, or 800. The scanline map
+  holds 1024 entries either way, so the number decides how large a window to
+  open and how much of the map to honour, not how memory is read. Deriving it
+  from the programmed timings would settle it.
 - **Monitor size.** CSR MOD reports a 19-inch VR260 or a 15-inch monitor;
   decide which the emulated board claims.
 - **Contention for the emulated memory range.** `application_c::emulate_memory()`
