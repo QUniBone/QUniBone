@@ -116,24 +116,52 @@ The board takes a DHCP address on `br0`, the bridge carrying both the BeagleBone
 and the emulated machine. Its hostname is `qbone` (or `unibone`). In order of
 convenience:
 
-1. **Your router's DHCP lease table** — look for the hostname `qbone` or
-   `unibone`. The bridge pins the board's uplink MAC, so the lease is stable
-   across reboots. This is the path that always works.
-2. **`http://qbone.local/`** — worth a try, but not guaranteed: the image sets
-   the hostname, and whether it advertises over mDNS depends on the base image
-   shipping an mDNS responder, which this image does not install itself. Your
-   client also needs to resolve `.local` — macOS does, Linux needs
-   `libnss-mdns`, Windows needs Bonjour.
-3. **The serial console** — a 3.3 V USB-serial adapter on the J1 header,
-   115200 8N1. Log in and run `ip addr show br0`. This is also the only console
-   if the board never reaches the network: the USB gadget serial getty is masked
-   in the image, because it wedges the boot, so USB serial is *not* a way in.
+1. **`http://qbone.local/`** — the image runs an mDNS responder, so the name
+   resolves without any setup on your network. Your client has to speak mDNS
+   too: macOS does, Linux needs `libnss-mdns`, Windows needs Bonjour.
+2. **A service browser** — the web interface advertises itself over DNS-SD as
+   *QBone on \<hostname\>*, so it appears in Safari's Bonjour bookmarks, in
+   `avahi-browse -rt _http._tcp`, and in the network view of most file managers.
+3. **Plug a USB cable into the board** — it appears as a network interface with
+   the board at a fixed **192.168.7.2**, handing your machine an address on the
+   same subnet. No LAN, no DHCP server, nothing to discover:
+   `http://192.168.7.2/`.
+4. **Your router's DHCP lease table** — look for the hostname. The bridge pins
+   the board's uplink MAC, so the lease is stable across reboots.
+5. **The serial console** — a 3.3 V USB-serial adapter on the J1 header,
+   115200 8N1. The address is printed above the login prompt, so you do not
+   need to log in. This is also the console of last resort if the board never
+   reaches the network: the USB gadget *serial* getty is masked in the image
+   because it wedges the boot, so USB serial is not a way in — only USB
+   networking is.
+
+The address is also printed on the console and into the journal once the board
+has one (`journalctl -u qbone-announce`).
 
 Then open `http://<address>/`. The web interface binds port 80 and asks you to
 set an admin password on first use.
 
-Finding the address is the roughest edge in this process, and the one most
-worth fixing.
+### More than one board on the network
+
+Addresses never collide: each board's DHCP lease is keyed to its own uplink MAC,
+and each emulated Ethernet controller derives its station address from that MAC
+as well.
+
+Names do. Every image ships the same hostname, so a second board finds `qbone`
+taken and mDNS renames it `qbone-2.local`, a third `qbone-3.local`, and so on.
+That keeps them reachable but does not tell you which physical board is which —
+and which one gets `-2` depends on boot order.
+
+Give each board its own name:
+
+    sudo hostnamectl set-hostname pdp11-front
+    sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tpdp11-front/' /etc/hosts
+    sudo systemctl restart avahi-daemon systemd-networkd
+
+The name then follows everywhere by itself: `pdp11-front.local`, the DNS-SD
+entry, the DHCP lease in your router's table, and the login banner. Nothing in
+the emulator depends on the hostname — the `qbone` in paths, unit names and the
+package is the board type, not the machine's name, and is unaffected.
 
 ## Building from source
 

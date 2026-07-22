@@ -1,0 +1,30 @@
+# The USB gadget interface, so the board can be reached from a machine plugged
+# into its USB port with no LAN, no DHCP server and no address to discover.
+#
+# The address is fixed and the built-in DHCP server hands the attached host one
+# on the same subnet, so http://192.168.7.2/ reaches the web interface whatever
+# the LAN is doing. This is the fallback for a board whose address on the
+# bridge cannot be found.
+#
+# The gadget itself is created by the base image; this only addresses it. On an
+# image without the gadget the interface never appears and this file does
+# nothing.
+[Match]
+Name=usb0
+
+[Link]
+# a board with nothing plugged into its USB port must still reach network-online
+RequiredForOnline=no
+
+[Network]
+Address=192.168.7.2/24
+DHCPServer=yes
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+
+[DHCPServer]
+# one lease, well clear of the board's own address
+PoolOffset=100
+PoolSize=8
+EmitDNS=no
+EmitNTP=no

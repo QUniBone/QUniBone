@@ -1,0 +1,17 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  Advertise the emulator's web interface over DNS-SD, so the board announces
+  itself to a service browser instead of having to be found by address. Safari's
+  Bonjour list, avahi-browse and the file manager's network view all pick it up.
+
+  Read by avahi-daemon, which watches this directory: no restart is needed after
+  a change, and the file is inert on a system with no avahi installed.
+-->
+<service-group>
+  <name replace-wildcards="yes">QBone on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>80</port>
+  </service>
+</service-group>

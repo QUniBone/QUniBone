@@ -31,6 +31,12 @@ set -euo pipefail
 # board: names the package installed, the hostname and the image
 NAME=${NAME:-qbone}
 
+# Optional apt repository the image points at, so a flashed board can
+# apt update / apt upgrade. Empty by default - the public sources carry no
+# repository URL; the caller (a workflow) supplies these from private config.
+APT_REPO_URL=${APT_REPO_URL:-}
+APT_REPO_KEY_URL=${APT_REPO_KEY_URL:-}
+
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 DIST=${DIST:-$HERE/dist}
 OUT=${OUT:-$HERE/${NAME}-dist.img}
@@ -54,6 +60,7 @@ docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
 echo "== building the $NAME image in a privileged container (this takes a while) =="
 docker run --rm -i --privileged \
     -e GROW="$GROW" -e MARGIN_MB="$MARGIN_MB" -e NAME="$NAME" \
+    -e APT_REPO_URL="$APT_REPO_URL" -e APT_REPO_KEY_URL="$APT_REPO_KEY_URL" \
     -v "$DIST":/dist \
     -v "$DTS":/in/board.dts:ro \
     -v "$NET":/in/network:ro \
@@ -61,7 +68,7 @@ docker run --rm -i --privileged \
 export DEBIAN_FRONTEND=noninteractive
 apt-get -qq update >/dev/null
 apt-get -qq install -y xz-utils fdisk util-linux e2fsprogs dosfstools \
-    qemu-user-static systemd >/dev/null
+    qemu-user-static systemd curl ca-certificates >/dev/null
 
 echo "-- decompressing the base image"
 xz -dc /dist/base.img.xz > /work.img
@@ -116,6 +123,11 @@ rm -f /var/www/html/Cockpit.html
 apt-get -qq update >/dev/null
 # the operator toolset the appliance is run and debugged with
 apt-get -qq install -y gdb tcpdump zsh tmux ckermit >/dev/null
+# mDNS, so <name>.local resolves and the web interface announces itself over
+# DNS-SD. Installed here rather than assumed of the base image: finding the
+# board's address is otherwise the hardest part of a first boot. libnss-mdns
+# also lets the board resolve other .local names.
+apt-get -qq install -y avahi-daemon libnss-mdns >/dev/null
 # the emulator package pulls in iproute2 and the device-tree build tools
 apt-get -qq install -y /tmp/in/${NAME}_*_armhf.deb >/dev/null
 
@@ -167,6 +179,19 @@ DTB="$SRC/src/arm/ti/omap/am335x-boneblack-${NAME}.dtb"
 cp "/boot/dtbs/$KVER/$BASE_DTB" "/boot/dtbs/$KVER/$BASE_DTB.stock"
 cp "$DTB" "/boot/dtbs/$KVER/$BASE_DTB"
 
+# The address above the login prompt. agetty expands these when it writes
+# /etc/issue to the console, so the serial console shows where the board can be
+# reached without anyone logging in. \n is the hostname, \4{br0} the bridge's
+# IPv4 address - blank until DHCP answers.
+cat > /etc/issue <<'ISSUE'
+Debian GNU/Linux \r on \m
+
+\n - web interface: http://\4{br0}/
+      over USB:     http://\4{usb0}/
+
+ISSUE
+chmod 644 /etc/issue
+
 # the sample operating systems and their boot configurations
 install -d -m 755 /var/lib/${NAME}/images /var/lib/${NAME}/configs
 cp /tmp/in/images/* /var/lib/${NAME}/images/
@@ -179,13 +204,30 @@ echo "-- enabling the services (offline, from the host)"
 # <name>-setup.service runs the setup --auto on first boot so the image
 # configures its network bridge with no login; the image enables it, a package
 # install leaves it disabled
-systemctl --root=/mnt enable ${NAME}-network.service ${NAME}.service ${NAME}-setup.service ${NAME}-leds.service ${NAME}-resize.service >/dev/null 2>&1 || true
-# the USB gadget serial getty spins on a tty that is not reliably present and
+# <name>-announce prints the board's address on the console once it has one
+systemctl --root=/mnt enable ${NAME}-network.service ${NAME}.service ${NAME}-setup.service ${NAME}-leds.service ${NAME}-resize.service ${NAME}-announce.service >/dev/null 2>&1 || true
+# mDNS: <name>.local, and the DNS-SD advertisement the package drops in
+# /etc/avahi/services. The postinst enables it, this makes sure of it.
+systemctl --root=/mnt enable avahi-daemon.service >/dev/null 2>&1 || true
+# The USB gadget serial getty spins on a tty that is not reliably present and
 # wedges the console; the appliance is reached over the physical UART, the web
-# interface and ssh. Mask the GPIO daemon's unit too - nothing here uses it.
+# interface and ssh. Only the getty is masked - the gadget's network interface
+# stays, and usb0.network addresses it. Mask the GPIO daemon's unit too -
+# nothing here uses it.
 systemctl --root=/mnt mask serial-getty@ttyGS0.service gpio-manager.service >/dev/null 2>&1 || true
 # a persistent journal survives reboots
 mkdir -p /mnt/var/log/journal
+
+# point the image at the apt repository so the board can upgrade from it (the
+# key and source are fetched from the container, which has curl; the armhf
+# chroot need not run curl under qemu)
+if [ -n "$APT_REPO_URL" ] && [ -n "$APT_REPO_KEY_URL" ]; then
+    echo "-- adding the $NAME apt repository"
+    install -d -m 0755 /mnt/usr/share/keyrings
+    curl -fsSL -o "/mnt/usr/share/keyrings/${NAME}-archive-keyring.gpg" "$APT_REPO_KEY_URL"
+    printf 'deb [signed-by=/usr/share/keyrings/%s-archive-keyring.gpg] %s trixie main\n' \
+        "$NAME" "$APT_REPO_URL" > "/mnt/etc/apt/sources.list.d/${NAME}.list"
+fi
 
 echo "-- resetting identity"
 # restore the managed resolv.conf symlink the base image shipped

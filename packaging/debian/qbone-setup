@@ -209,7 +209,9 @@ install_bridge() {
     tmp=$(mktemp)
     sed "s|^# MACAddress set by qbone-setup.*|MACAddress=$mac|" \
         "$NETSRC/br0.netdev" > "$tmp"
-    for f in br0.network eth0.network veth-br.network veth-pdp.network; do
+    # usb0.network addresses the USB gadget, the way in when the board's
+    # address on the bridge is not known; it is inert without the gadget
+    for f in br0.network eth0.network veth-br.network veth-pdp.network usb0.network; do
         cmp -s "$NETSRC/$f" "$NETDIR/$f" || { cp "$NETSRC/$f" "$NETDIR/$f"; changed=yes; }
     done
     cmp -s "$tmp" "$NETDIR/br0.netdev" || { cp "$tmp" "$NETDIR/br0.netdev"; changed=yes; }

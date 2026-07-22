@@ -55,9 +55,9 @@ done
 # its systemd units; the display brand is what the web interface shows. QBUS is
 # qbone/QBone, UNIBUS is unibone/UniBone.
 if [ "$SUFFIX" = _u ]; then
-    NAME=unibone; DISPLAY=UniBone
+    NAME=unibone; DISPLAY=UniBone; OTHER=qbone
 else
-    NAME=qbone;   DISPLAY=QBone
+    NAME=qbone;   DISPLAY=QBone;   OTHER=unibone
 fi
 
 # Rewrite the qbone/QBone brand to this board's, while keeping the hardware
@@ -97,6 +97,7 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/lib/firmware \
     $STAGE/usr/sbin \
     $STAGE/usr/share/$NAME/network \
+    $STAGE/etc/avahi/services \
     $STAGE/var/lib/$NAME/images \
     $STAGE/var/lib/$NAME/configs
 
@@ -121,7 +122,9 @@ rebrand < packaging/debian/network.conf > $STAGE/etc/$NAME/network.conf
 rebrand < packaging/debian/qbone-network > $STAGE/usr/sbin/$NAME-network
 rebrand < packaging/debian/qbone-setup > $STAGE/usr/sbin/$NAME-setup
 rebrand < packaging/debian/qbone-resize > $STAGE/usr/sbin/$NAME-resize
-chmod 755 $STAGE/usr/sbin/$NAME-network $STAGE/usr/sbin/$NAME-setup $STAGE/usr/sbin/$NAME-resize
+rebrand < packaging/debian/qbone-announce > $STAGE/usr/sbin/$NAME-announce
+chmod 755 $STAGE/usr/sbin/$NAME-network $STAGE/usr/sbin/$NAME-setup \
+    $STAGE/usr/sbin/$NAME-resize $STAGE/usr/sbin/$NAME-announce
 rebrand < packaging/debian/qbone-network.service > $STAGE/lib/systemd/system/$NAME-network.service
 # runs <name>-setup --auto unattended; enabled on the distribution image, left
 # disabled on a package install where the operator drives the setup by hand
@@ -136,6 +139,13 @@ rm -f "$LEDS_C"
 rebrand < packaging/debian/qbone-leds.service > $STAGE/lib/systemd/system/$NAME-leds.service
 # grows the root filesystem to fill the card on first boot; enabled on the image
 rebrand < packaging/debian/qbone-resize.service > $STAGE/lib/systemd/system/$NAME-resize.service
+# prints the board's address on the console once the bridge has one; enabled on
+# the image, where nobody knows the address yet
+rebrand < packaging/debian/qbone-announce.service > $STAGE/lib/systemd/system/$NAME-announce.service
+# DNS-SD advertisement for the web interface, read by avahi-daemon when the
+# system has one; inert otherwise
+rebrand < packaging/debian/avahi-qbone.service > $STAGE/etc/avahi/services/$NAME.service
+chmod 644 $STAGE/etc/avahi/services/$NAME.service
 rebrand < packaging/debian/README.Debian > $STAGE/usr/share/doc/$NAME/README.Debian
 chmod 644 $STAGE/lib/systemd/system/$NAME*.service $STAGE/etc/$NAME/network.conf \
     $STAGE/usr/share/doc/$NAME/README.Debian
@@ -145,7 +155,7 @@ chmod 644 $STAGE/lib/systemd/system/$NAME*.service $STAGE/etc/$NAME/network.conf
 install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts \
     $STAGE/usr/share/$NAME/am335x-boneblack-$NAME.dts
 # the bridge that carries the emulated machine, installed by <name>-setup
-for f in br0.netdev br0.network eth0.network veth-br.network veth-pdp.network; do
+for f in br0.netdev br0.network eth0.network veth-br.network veth-pdp.network usb0.network; do
     rebrand < packaging/debian/network/$f > $STAGE/usr/share/$NAME/network/$f
     chmod 644 $STAGE/usr/share/$NAME/network/$f
 done
@@ -183,6 +193,10 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     # not here. Spelled out rather than taken from packaging/debian/control,
     # whose ${misc:Depends} is a debhelper substitution this build does not do.
     echo "Depends: iproute2, device-tree-compiler, cpp, make"
+    # the two boards ship the same cape overlay and firmware files, and a BBB
+    # carries one cape, so they are mutually exclusive on a machine
+    echo "Conflicts: $OTHER"
+    echo "Replaces: $OTHER"
     echo "Maintainer: Hans Huebner <hans.huebner@gmail.com>"
     echo "Installed-Size: $INSTALLED_KB"
     sed -n '/^Description:/,$p' packaging/debian/control | rebrand
@@ -193,6 +207,7 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     echo "/etc/$NAME/network.conf"
     echo "/etc/modprobe.d/$NAME.conf"
     echo "/etc/modules-load.d/$NAME.conf"
+    echo "/etc/avahi/services/$NAME.service"
 } > $STAGE/DEBIAN/conffiles
 
 cat > $STAGE/DEBIAN/preinst <<'PREINST'

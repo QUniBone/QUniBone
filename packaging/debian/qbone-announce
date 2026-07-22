@@ -1,0 +1,48 @@
+#!/bin/sh
+# Report where the board can be reached.
+#
+# The address comes from DHCP and the appliance has no display, so on a first
+# boot there is nothing to read it off. This puts it on every console and in the
+# journal, where an attached serial terminal shows it without logging in and
+# `journalctl -u qbone-announce` shows it afterwards.
+#
+# usage: qbone-announce [interface]      (default br0)
+
+set -e
+
+IFACE=${1:-br0}
+# the bridge is up before the lease arrives; wait out a slow DHCP server
+TRIES=${TRIES:-60}
+
+addr_of() {
+    ip -4 -o addr show dev "$1" scope global 2>/dev/null |
+        awk '{print $4}' | cut -d/ -f1 | head -1
+}
+
+ADDR=
+i=0
+while [ "$i" -lt "$TRIES" ]; do
+    ADDR=$(addr_of "$IFACE")
+    [ -n "$ADDR" ] && break
+    i=$((i + 1))
+    sleep 1
+done
+
+if [ -z "$ADDR" ]; then
+    echo "qbone: no address on $IFACE after ${TRIES}s."
+    echo "qbone: check the network cable and the DHCP server."
+    # the gadget address is fixed, so it is worth naming even with no lease
+    if [ -n "$(addr_of usb0)" ]; then
+        echo "qbone: reachable over USB at http://$(addr_of usb0)/"
+    fi
+    exit 0
+fi
+
+echo "qbone is at $ADDR - web interface: http://$ADDR/"
+if [ -n "$(addr_of usb0)" ]; then
+    echo "qbone over USB: http://$(addr_of usb0)/"
+fi
+
+# reach a session that is already logged in on the serial console
+command -v wall >/dev/null 2>&1 && wall -n "qbone: http://$ADDR/" 2>/dev/null || true
+exit 0

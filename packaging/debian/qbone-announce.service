@@ -1,0 +1,17 @@
+[Unit]
+Description=Announce the address the QBone can be reached at
+Documentation=file:/usr/share/doc/qbone/README.Debian
+# the bridge carries the address, so wait for the network and for the veth pair
+After=network-online.target qbone-network.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/qbone-announce
+# on the console as well as in the journal: on a first boot the console is the
+# only place anyone is looking
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target
