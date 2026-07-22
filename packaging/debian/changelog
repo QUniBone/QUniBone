@@ -1,3 +1,15 @@
+qbone (1.8.0-1) trixie; urgency=low
+
+  * Emulate the DEC DEUNA Ethernet controller on the UNIBUS board, with its
+    port-command interface and descriptor rings, attached to the host network
+    through a raw socket on a shared interface. The emulation has not yet been
+    exercised against a running operating system.
+  * Share the host Ethernet attachment between the DELQA and the DEUNA.
+  * Bound the DELQA's buffer descriptor list walks, so a list that chains back
+    on itself leaves the controller idle instead of walking for ever.
+
+ -- Hans Huebner <hans.huebner@gmail.com>  Wed, 22 Jul 2026 07:00:00 +0200
+
 qbone (1.7.0-1) trixie; urgency=low
 
   * Ship a separate unibone package for the UNIBUS board beside qbone for QBUS,
