@@ -568,7 +568,6 @@ bool RX0102uCPU_c::on_param_changed(parameter_c *param)
     if (param == &enabled) {
         if (!enabled.new_value) {
             // flip OFF power switch by disable
-            // must be "powered"-on by caller or user after enable
             power_switch.value = false;
             set_powerless() ;
 //            controller->update_status("on_param_changed(enabled) -> update_status") ;
@@ -579,6 +578,12 @@ bool RX0102uCPU_c::on_param_changed(parameter_c *param)
             RX0102drive_c *drive = drives[i] ;
             drive->enabled.set(enabled.new_value) ;
         }
+        // The box is powered with the drives in it. set() rather than a plain
+        // assignment, so the power-on reset runs and init() sees the switch
+        // closed; the drives are enabled first, because init() reads the
+        // selected drive.
+        if (enabled.new_value)
+            power_switch.set(true) ;
         controller->update_status("on_param_changed(enabled) -> update_status") ;
 
     }  else if (param == &power_switch) {

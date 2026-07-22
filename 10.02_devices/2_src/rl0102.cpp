@@ -50,10 +50,14 @@ bool RL0102_c::on_param_changed(parameter_c *param)
     if (param == &enabled) {
         if (!enabled.new_value) {
             // disable switches power OFF.
-            // must be power on by caller or user after enable
             power_switch.value = false;
             change_state(RL0102_STATE_power_off);
-        }
+        } else
+            // A drive is powered with the box it sits in: enabling it closes
+            // the POWER switch, so it reaches "load cartridge" and the LOAD
+            // button spins it up. Powered off, the worker parks the drive on
+            // every pass and LOAD has no effect.
+            power_switch.value = true;
     } else if (param == &type_name) {
         if (!strcasecmp(type_name.new_value.c_str(), "RL01"))
             set_type(drive_type_e::RL01);
