@@ -58,11 +58,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # release notes: the top changelog stanza as markdown, plus a summary.
+          # awk prints the stanza body (past the version header, up to the
+          # signature); sed turns "  * " bullets into "- " and reindents
+          # continuation lines.
+          body=$(awk 'NR==1 {next} /^ --/ {exit} {print}' packaging/debian/changelog \
+                 | sed -e 's/^  \* /- /' -e 's/^    /  /')
+          notes=$(printf '%s\n\nPackages and appliance images for both boards (qbone/QBUS, unibone/UNIBUS). Image base: %s.\n' \
+                  "$body" "$BASE_VERSION")
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes "$notes"
             gh release upload "$GITHUB_REF_NAME" *_armhf.deb --clobber
           else
             gh release create "$GITHUB_REF_NAME" *_armhf.deb --title "$GITHUB_REF_NAME" \
-              --notes "qbone and unibone packages and appliance images. Image base: $BASE_VERSION."
+              --notes "$notes"
           fi
 
       - name: Publish to the apt repository

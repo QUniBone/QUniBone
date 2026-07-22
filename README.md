@@ -61,12 +61,14 @@ boot.
 
 ### 1. Get the image
 
-Every release bundles both packages and both board images. From
-[Releases](https://github.com/QUniBone/QUniBone/releases), take the newest
-release and download one of:
+Every release bundles both packages and both board images. These links always
+download the newest release's image:
 
-- `qbone-dist.img.xz` — QBUS board
-- `unibone-dist.img.xz` — UNIBUS board (untested; see Status)
+- **[qbone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/qbone-dist.img.xz)** — QBUS board
+- **[unibone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/unibone-dist.img.xz)** — UNIBUS board (untested; see Status)
+
+The [latest release page](https://github.com/QUniBone/QUniBone/releases/latest)
+has the release notes, the packages, and the other board's image.
 
 ### 2. Write it to a microSD card
 
