@@ -61,8 +61,9 @@ boot.
 
 ### 1. Get the image
 
-From [Releases](https://github.com/QUniBone/QUniBone/releases), take the newest
-`image-*` release and download one of:
+Every release bundles both packages and both board images. From
+[Releases](https://github.com/QUniBone/QUniBone/releases), take the newest
+release and download one of:
 
 - `qbone-dist.img.xz` — QBUS board
 - `unibone-dist.img.xz` — UNIBUS board (untested; see Status)
@@ -175,6 +176,17 @@ BeagleBone carrying a cape and is the same on either board, so all of it is
 named `bone`. The board's name appears in three places: the emulator binary
 (`/usr/bin/qbone` or `/usr/bin/unibone`), the unit that runs it, and the package
 you install.
+
+## Updating
+
+The card image ships with the package repository preconfigured, so a board
+keeps itself current from later releases:
+
+    sudo apt update && sudo apt upgrade
+
+Every release also attaches the packages themselves —
+`qbone_<version>_armhf.deb` and `unibone_<version>_armhf.deb` — beside the
+images, for a board built another way.
 
 ## Building from source
 
