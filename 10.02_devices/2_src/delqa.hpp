@@ -169,6 +169,14 @@ private:
 
     static const unsigned FILTER_MAX = 14; // MAC address filter slots
 
+    // How far a buffer descriptor list is walked before the walk is abandoned.
+    // A list that chains back on itself is walked forever otherwise; comparing
+    // against the address the walk started from catches a chain closing on the
+    // head, and this bounds the shapes that close anywhere else. Far above any
+    // list a driver builds: a maximum-length packet needs a handful of
+    // segments, and a receive ring holds tens of buffers.
+    static const unsigned MAX_DESCRIPTORS = 256;
+
     // a packet waiting for delivery through the receive BDL
     struct packet_c {
         enum type_e {

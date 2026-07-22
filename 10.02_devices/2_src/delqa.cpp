@@ -748,6 +748,14 @@ void delqa_c::process_rbdl(void)
             DEBUG("processed all %d receive descriptors", dcount);
             break;
         }
+        // a list that closes anywhere but on its head never reaches the check
+        // above, so bound the walk and report the receiver stopped
+        if (dcount > MAX_DESCRIPTORS) {
+            WARNING("receive BDL at %08o does not terminate, stopped after %d descriptors",
+                    start_ba, dcount);
+            rl_reached = true;
+            break;
+        }
         dcount++;
 
         // mark descriptor used
@@ -972,9 +980,26 @@ void delqa_c::process_xbdl(void)
     // once. Reporting XI first shows the host a transmitter that has finished
     // a packet yet still claims work outstanding.
     bool pending_xi = false;
+    uint32_t start_ba = xbdl_ba;
+    unsigned dcount = 0;
 
     while (true) {
         uint16_t bd[6];
+
+        // A transmit list ends with an invalid descriptor. One that chains
+        // back on itself instead never reaches that end, so abandon the walk
+        // and report the transmitter idle - the list is malformed, the host
+        // memory behind it is not.
+        if (dcount && (xbdl_ba == start_ba || dcount > MAX_DESCRIPTORS)) {
+            WARNING("transmit BDL at %08o does not terminate, stopped after %d descriptors",
+                    start_ba, dcount);
+            pthread_mutex_lock(&on_after_register_access_mutex);
+            update_csr(CSR_XL | (pending_xi ? CSR_XI : 0), 0);
+            pthread_mutex_unlock(&on_after_register_access_mutex);
+            pending_xi = false;
+            break;
+        }
+        dcount++;
 
         if (!dma_read_words(xbdl_ba, bd, 6)) {
             nxm_error();
