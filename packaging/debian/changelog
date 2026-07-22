@@ -1,3 +1,11 @@
+qbone (1.7.0-1) trixie; urgency=low
+
+  * Ship a separate unibone package for the UNIBUS board beside qbone for QBUS,
+    built from the same sources with the brand and the web interface's display
+    name tracking the board.
+
+ -- Hans Huebner <hans.huebner@gmail.com>  Tue, 22 Jul 2026 06:30:00 +0200
+
 qbone (1.6.0-1) trixie; urgency=low
 
   * Build on Debian 13 with the remoteproc PRU backend.
