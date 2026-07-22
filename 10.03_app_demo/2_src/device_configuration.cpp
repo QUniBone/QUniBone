@@ -75,6 +75,7 @@ device_configuration_c::device_configuration_c(bool with_emulated_CPU) :
 	RX211 = new RX211_c();
 	m9312 = new m9312_c();
 	KE11A = new ke11_c();
+	DEUNA = new deuna_c();
 	cpu = NULL;
 	if (with_emulated_CPU) {
 		cpu = new cpu_c();
@@ -98,6 +99,8 @@ device_configuration_c::~device_configuration_c() {
 	delete m9312;
 	KE11A->enabled.set(false);
 	delete KE11A;
+	DEUNA->enabled.set(false);
+	delete DEUNA;
 #endif
 
 	RX11->enabled.set(false);

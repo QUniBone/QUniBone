@@ -52,6 +52,7 @@
 #if defined(UNIBUS)
 #include "m9312.hpp"
 #include "ke11.hpp"
+#include "deuna.hpp"
 #include "cpu.hpp"
 #endif
 
@@ -71,6 +72,7 @@ public:
 	RX211_c *RX211;
 	m9312_c *m9312;
 	ke11_c *KE11A;
+	deuna_c *DEUNA;
 	cpu_c *cpu; // only set with_emulated_CPU, else NULL
 #elif defined(QBUS)
 	RLV12_c *RL11;
