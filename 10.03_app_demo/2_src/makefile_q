@@ -40,7 +40,7 @@ PRUSS_DRV_LIB = $(PRU_PACKAGE_ROOT)/bin-bbb/libprussdrv.a
 #
 # EXTRA_LIBS: additional libraries some toolchains need
 # (e.g. -ltirpc where Sun RPC is no longer part of glibc)
-LDFLAGS+= -no-pie -lstdc++ -lpthread $(PRUSS_DRV_LIB) $(EXTRA_LIBS)
+LDFLAGS+= -no-pie -lstdc++ -lpthread -lX11 $(PRUSS_DRV_LIB) $(EXTRA_LIBS)
 
 # compiler flags and libraries
 ifeq ($(MAKE_CONFIGURATION),RELEASE)
@@ -127,6 +127,9 @@ OBJECTS = $(OBJDIR)/application.o	\
 	$(OBJDIR)/mscp_server.o \
 	$(OBJDIR)/mscp_drive.o \
 	$(OBJDIR)/delqa.o	\
+	$(OBJDIR)/vcb01.o	\
+	$(OBJDIR)/vcb01_render.o	\
+	$(OBJDIR)/x11display.o	\
 	$(OBJDIR)/ether_bridge.o	\
 	$(OBJDIR)/rx0102drive.o	\
 	$(OBJDIR)/rx0102ucpu.o	\
@@ -351,6 +354,15 @@ $(OBJDIR)/mscp_drive.o :   $(DEVICE_SRC_DIR)/mscp_drive.cpp $(DEVICE_SRC_DIR)/ms
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/delqa.o :   $(DEVICE_SRC_DIR)/delqa.cpp $(DEVICE_SRC_DIR)/delqa.hpp $(DEVICE_SRC_DIR)/delqa_bootrom.h $(DEVICE_SRC_DIR)/ether_bridge.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/vcb01.o :   $(DEVICE_SRC_DIR)/vcb01.cpp $(DEVICE_SRC_DIR)/vcb01.hpp $(DEVICE_SRC_DIR)/vcb01_render.hpp $(DEVICE_SRC_DIR)/x11display.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/vcb01_render.o :   $(DEVICE_SRC_DIR)/vcb01_render.cpp $(DEVICE_SRC_DIR)/vcb01_render.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/x11display.o :   $(DEVICE_SRC_DIR)/x11display.cpp $(DEVICE_SRC_DIR)/x11display.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/ether_bridge.o :   $(DEVICE_SRC_DIR)/ether_bridge.cpp $(DEVICE_SRC_DIR)/ether_bridge.hpp

@@ -48,6 +48,7 @@
 #include "rx11211.hpp"
 #if defined(QBUS)
 #include "delqa.hpp"
+#include "vcb01.hpp"
 #endif
 #if defined(UNIBUS)
 #include "m9312.hpp"
@@ -80,6 +81,7 @@ public:
 	RXV11_c *RX11;
 	RXV21_c *RX211;
 	delqa_c *DELQA;
+	vcb01_c *VCB01;
 #endif
 	uda_c *UDA50;
 	slu_c *DL11, *DL11b;

@@ -35,9 +35,14 @@ channel B.
 
 ### Video memory
 
-256 KB (64K longwords) in Q22 address space. The bank is selected by the CSR
-MA field: `base = MA << 18`. MA = 016 puts it at 16000000, matching the
-RSXstation write-up.
+256 KB (64K longwords) in Q22 address space, at `base = MA << 18`.
+
+**MA is a switch on the board, which software reads and cannot set.** It
+occupies CSR bits 11..14 and is absent from the register's writable bits, so a
+driver learns where video memory is by reading the CSR rather than by placing
+it. Boards differ: a VAXstation II puts the bank at the top of Qbus memory
+space, MA = 017, while the board in the RSXstation write-up answered at
+16000000, MA = 016. Here it is a device parameter.
 
 Screen is 1024 x 864. Layout by longword index within the bank:
 
@@ -82,9 +87,13 @@ Bank placement follows MA, at 256 KB granularity:
 | 015 | 15000000 .. 15777776 | RAM limited to 3.25 MB |
 | 017 | 17000000 .. 17777776 | unusable: overlaps the I/O page |
 
-MA = 017 has to be rejected — `ddrmem->set_range()` warns when the range
-reaches into the I/O page, and letting it through would take the register file
-down with it.
+MA = 017 is where a VAXstation II puts the bank, because a Qbus tells memory
+space from I/O space by BBS7 rather than by address alone, so video memory at
+017000000 and the I/O page at 017760000 do not collide. `ddrmem->set_range()`
+compares plain addresses and warns when a range reaches the I/O page, so
+whether QBone can serve that bank depends on how the PRU encodes BBS7 into the
+address it decodes. Until that is established the bank stays below it, which
+is where the board in the RSXstation write-up sat anyway.
 
 Memory sizing routines walk upward until an address stops answering, so they
 count the framebuffer as RAM if it sits directly above the last memory card
@@ -248,11 +257,25 @@ resolution. `--dump` writes a frame to an image, `--display` animates a scroll,
 and `--ddrmem` renders from the board's own video memory and times it. All 23
 pass on the workstation and on the board.
 
-**2 — The bus device.** Registers, CSR MA driving `ddrmem->set_range()`, CRTC,
-interrupt controller and VSYNC. Tested under RSX-11M+ (see below) with programs
-modelled on the ones from the RSXstation write-up: clear, fill, draw lines and a
-banner. `qunibus->mem_write()` DMAs a standalone image into the machine's memory
-for a first light without an operating system.
+**2 — The bus device. Written, not yet run on the bus.** `vcb01.cpp`: the 32
+registers, the CSR with its read-only bank switch and monitor size, the CRTC
+behind its address and data ports, the eight-source interrupt controller with
+its command set and per-source vectors, vertical sync at 60 Hz with blanking
+readable in the CRTC pointer, and the refresh worker driving the renderer. The
+screen is opened in `on_before_install()` and dropped in `on_after_uninstall()`,
+so a display that cannot be reached refuses the enable rather than leaving a
+controller on the bus with nowhere to draw.
+
+Two things have to be in place before it can run:
+
+- **The bank has to be free.** The machine answers across the whole 22-bit
+  space, so its memory card has to come down below 16000000 first.
+- **The X server has to accept the board.** XQuartz needs network clients
+  enabled and `xhost` opened to the bone.
+
+Then: first light with `qunibus->mem_write()` DMAing a standalone image into
+the machine's memory, and after that programs under RSX-11M+ modelled on the
+ones from the RSXstation write-up - clear, fill, draw lines and a banner.
 
 **3 — Keyboard.** SCN2681 channel A and the LK201 model. Verified by a Macro-11
 program echoing keycodes to the console.

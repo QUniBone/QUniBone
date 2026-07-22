@@ -9,8 +9,8 @@
 # bus latches, master/slave tests and the device exercisers. The renames
 # happen here so the tree stays mergeable with upstream.
 #
-# The binary is statically linked and carries the PRU firmware inside it, so
-# the package depends on nothing and the staging tree is small. dpkg-deb runs
+# The binary carries the PRU firmware inside it, and links against libraries
+# the appliance image already has, which the control file names. dpkg-deb runs
 # in the same container the cross build uses, since macOS has no dpkg.
 #
 # usage:
@@ -180,7 +180,7 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     # not here. Spelled out rather than taken from packaging/debian/control,
     # whose ${misc:Depends} is a debhelper substitution this build does not do,
     # and which has no ${shlibs:Depends} to compute the libraries either.
-    echo "Depends: libc6, libstdc++6, libgcc-s1, iproute2, device-tree-compiler, cpp, make"
+    echo "Depends: libc6, libstdc++6, libgcc-s1, libx11-6, iproute2, device-tree-compiler, cpp, make"
     # the two boards ship the same cape overlay and firmware files, and a BBB
     # carries one cape, so they are mutually exclusive on a machine
     echo "Conflicts: $OTHER"
