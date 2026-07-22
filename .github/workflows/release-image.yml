@@ -92,6 +92,10 @@ jobs:
           GROW: ${{ inputs.grow }}
           MARGIN_MB: ${{ inputs.margin_mb }}
           NAME: ${{ matrix.board }}
+          # pre-configure the board's apt source (URL/key from private repo
+          # variables, so the public workflow carries no repository URL)
+          APT_REPO_URL: ${{ vars.APT_REPO_URL }}
+          APT_REPO_KEY_URL: ${{ vars.APT_REPO_KEY_URL }}
         run: DIST=./dist ./packaging/build-image.sh
 
       - name: Compress the image

@@ -60,18 +60,22 @@ jobs:
               --title "$GITHUB_REF_NAME" --generate-notes
           fi
 
-      - name: Publish to the Debian registry
+      - name: Publish to the apt repository
+        # Push both debs to the host over the forced-command deploy key. The
+        # host-side command (roles/apt-repo/apt-receive) drops them into
+        # pool/main and rebuilds the signed index. Skips itself when the deploy
+        # key/host are not configured, so a fork still gets the GitHub Release.
         env:
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
-          REGISTRY_URL: ${{ vars.DEBIAN_REGISTRY_URL }}
+          APT_DEPLOY_KEY: ${{ secrets.APT_DEPLOY_KEY }}
+          APT_DEPLOY_HOST: ${{ vars.APT_DEPLOY_HOST }}
+          APT_DEPLOY_PORT: ${{ vars.APT_DEPLOY_PORT }}
         run: |
-          if [ -z "$REGISTRY_TOKEN" ] || [ -z "$REGISTRY_URL" ]; then
-            echo "no registry configured - set the FORGEJO_TOKEN secret and the"
-            echo "DEBIAN_REGISTRY_URL variable to publish; skipping."
+          if [ -z "$APT_DEPLOY_KEY" ] || [ -z "$APT_DEPLOY_HOST" ]; then
+            echo "no apt deploy configured (APT_DEPLOY_KEY secret / APT_DEPLOY_HOST var); skipping"
             exit 0
           fi
-          for deb in *_armhf.deb; do
-            curl --fail-with-body -H "Authorization: token $REGISTRY_TOKEN" \
-                --upload-file "$deb" \
-                "$REGISTRY_URL/pool/trixie/main/upload"
-          done
+          key=$(mktemp); printf '%s\n' "$APT_DEPLOY_KEY" > "$key"; chmod 600 "$key"
+          trap 'rm -f "$key"' EXIT
+          tar -c *_armhf.deb | ssh -i "$key" -p "${APT_DEPLOY_PORT:-22}" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "$APT_DEPLOY_HOST"
