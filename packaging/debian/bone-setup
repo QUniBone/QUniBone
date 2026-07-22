@@ -1,5 +1,5 @@
 #!/bin/sh
-# One-shot setup for a freshly installed qbone package.
+# One-shot setup for a freshly installed emulator package.
 #
 # Checks the hardware the emulator needs, puts the emulated Ethernet controller
 # on the network, and starts the services. Safe to run again: everything it
@@ -15,22 +15,32 @@
 # board. That needs a plain, bridgeable NIC. The stock 6.x device tree binds
 # the switchdev cpsw driver, whose eth0 is a hardware switch port the kernel
 # refuses to add to a software bridge, so eth0 is moved to the legacy ti,cpsw
-# driver by a device tree built here. See /usr/share/doc/qbone/README.Debian.
+# driver by a device tree built here. See /usr/share/bone/README.Debian.
 #
 # usage:
-#   qbone-setup                 set up, including the network
-#   qbone-setup --no-network    set up without touching the network
+#   bone-setup                 set up, including the network
+#   bone-setup --no-network    set up without touching the network
 
 set -e
 
 UENV=/boot/uEnv.txt
-CONF=/etc/qbone/network.conf
-DTS=/usr/share/qbone/am335x-boneblack-qbone.dts
-NETSRC=/usr/share/qbone/network
+CONF=/etc/bone/network.conf
+DTS=/usr/share/bone/am335x-boneblack-bone.dts
+NETSRC=/usr/share/bone/network
 NETDIR=/etc/systemd/network
 # the file U-Boot loads on this image (uboot_base_dtb_univ), not the base or a
 # board-revision variant
 BASE_DTB=am335x-boneblack-uboot.dtb
+
+# The emulator is the one component compiled for a particular bus, so its unit
+# and binary carry the board's name; everything else here is the same for both.
+# The two packages conflict, so exactly one is ever installed.
+BOARD=qbone
+DISPLAY=QBone
+if [ -e /lib/systemd/system/unibone.service ]; then
+    BOARD=unibone
+    DISPLAY=UniBone
+fi
 
 WANT_NET=yes
 AUTO=no
@@ -39,16 +49,16 @@ while [ $# -gt 0 ]; do
         --no-network|--no-bridge) WANT_NET=no ;;
         # unattended: reboot between passes instead of asking, and hand the
         # hardware check and emulator startup to the enabled units. Used by
-        # qbone-setup.service so a distribution image configures itself with no
-        # login. It stops running once /var/lib/qbone/.setup-done exists.
+        # bone-setup.service so a distribution image configures itself with no
+        # login. It stops running once /var/lib/bone/.setup-done exists.
         --auto) AUTO=yes ;;
         *) echo "usage: $0 [--no-network] [--auto]" >&2; exit 2 ;;
     esac
     shift
 done
 
-say() { echo "qbone-setup: $*"; }
-die() { echo "qbone-setup: $*" >&2; exit 1; }
+say() { echo "bone-setup: $*"; }
+die() { echo "bone-setup: $*" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "must run as root"
 
@@ -104,9 +114,9 @@ configure_boot() {
 
 if ! capemgr && [ -f $UENV ]; then
     say "checking the boot settings"
-    cp -n $UENV $UENV.qbone-orig 2>/dev/null || true
+    cp -n $UENV $UENV.bone-orig 2>/dev/null || true
     if configure_boot; then
-        say "  boot settings applied; the original is kept at $UENV.qbone-orig"
+        say "  boot settings applied; the original is kept at $UENV.bone-orig"
         NEED_REBOOT=yes
     else
         say "  boot settings already correct"
@@ -166,9 +176,9 @@ configure_ethernet_dtb() {
 
     say "building the legacy-Ethernet device tree for $(uname -r)"
     cp "$DTS" "$src/src/arm/ti/omap/"
-    dtb=$src/src/arm/ti/omap/am335x-boneblack-qbone.dtb
+    dtb=$src/src/arm/ti/omap/am335x-boneblack-bone.dtb
     ( cd "$src" && make ARCH=arm CPP=cpp DTC=dtc \
-        src/arm/ti/omap/am335x-boneblack-qbone.dtb ) >/dev/null 2>&1 || {
+        src/arm/ti/omap/am335x-boneblack-bone.dtb ) >/dev/null 2>&1 || {
         say "  the device tree build failed"
         return 1
     }
@@ -207,7 +217,7 @@ install_bridge() {
 
     # br0.netdev with the uplink MAC pinned in
     tmp=$(mktemp)
-    sed "s|^# MACAddress set by qbone-setup.*|MACAddress=$mac|" \
+    sed "s|^# MACAddress set by bone-setup.*|MACAddress=$mac|" \
         "$NETSRC/br0.netdev" > "$tmp"
     # usb0.network addresses the USB gadget, the way in when the board's
     # address on the bridge is not known; it is inert without the gadget
@@ -222,8 +232,8 @@ install_bridge() {
     chmod 644 "$NETDIR/br0.netdev"
 
     # remove an old ifupdown bridge stanza that would fight networkd
-    if [ -e /etc/network/interfaces.d/qbone ]; then
-        mv /etc/network/interfaces.d/qbone /etc/network/interfaces.d/qbone.disabled
+    if [ -e /etc/network/interfaces.d/bone ]; then
+        mv /etc/network/interfaces.d/bone /etc/network/interfaces.d/bone.disabled
         say "  moved the old ifupdown bridge stanza aside"
         changed=yes
     fi
@@ -240,7 +250,7 @@ if [ $WANT_NET = yes ]; then
     else
         say "  bridge already configured"
     fi
-    # qbone-network only creates the veth pair; networkd enslaves it
+    # bone-network only creates the veth pair; networkd enslaves it
     if grep -q "^BRIDGE=." $CONF 2>/dev/null; then
         sed -i "s|^BRIDGE=.*|BRIDGE=|" $CONF
     fi
@@ -257,8 +267,8 @@ fi
 # board keeps one identity across the LAN and the emulated machine. Without an
 # eth0 the name carries no identifier and mDNS alone separates the boards.
 install_avahi_service() {
-    src=/usr/share/qbone/avahi-qbone.service
-    dst=/etc/avahi/services/qbone.service
+    src=/usr/share/bone/avahi-bone.service
+    dst=/etc/avahi/services/$BOARD.service
     [ -r "$src" ] || return 1
     # only where an avahi is installed to read it
     [ -d /etc/avahi/services ] || return 1
@@ -267,10 +277,10 @@ install_avahi_service() {
     id=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z' | cut -c7-12)
     tmp=$(mktemp)
     if [ -n "$id" ]; then
-        sed "s|QBone ID|QBone $id|" "$src" > "$tmp"
+        sed "s|BOARDID|$DISPLAY $id|" "$src" > "$tmp"
     else
         # drop the parenthesised identifier rather than advertise an empty one
-        sed "s| (QBone ID)||" "$src" > "$tmp"
+        sed "s| (BOARDID)||" "$src" > "$tmp"
     fi
     if cmp -s "$tmp" "$dst"; then
         rm -f "$tmp"
@@ -299,18 +309,18 @@ if [ -n "$NEED_REBOOT" ]; then
         systemctl reboot
         exit 0
     fi
-    say "settings applied. Reboot, then run 'sudo qbone-setup' again to start"
+    say "settings applied. Reboot, then run 'sudo bone-setup' again to start"
     say "the services:  sudo reboot"
     exit 0
 fi
 
 # Past the reboot point the network is fully configured. Unattended, that is
-# all this does: the enabled qbone-network and qbone units check the hardware
+# all this does: the enabled bone-network and emulator units check the hardware
 # and start the emulator. Record that setup is done so the service stops here.
 if [ "$AUTO" = yes ]; then
-    mkdir -p /var/lib/qbone
-    : > /var/lib/qbone/.setup-done
-    say "network configured; the qbone service starts the emulator"
+    mkdir -p /var/lib/bone
+    : > /var/lib/bone/.setup-done
+    say "network configured; the $BOARD service starts the emulator"
     exit 0
 fi
 
@@ -337,7 +347,7 @@ else
   in $UENV has to stay commented out."
     grep -qi qbone /sys/class/uio/*/name 2>/dev/null ||
         die "no PRU event device. uio_pdrv_genirq takes the compatible it binds
-  to from a module parameter; /etc/modprobe.d/qbone.conf ships with this package
+  to from a module parameter; /etc/modprobe.d/bone.conf ships with this package
   and sets it. Try 'modprobe -r uio_pdrv_genirq; modprobe uio_pdrv_genirq'."
     say "  PRU, cape overlay and event device present"
 
@@ -345,22 +355,22 @@ else
     if [ $WANT_NET = yes ] && ! eth0_is_plain; then
         die "eth0 is still a switch port: the legacy-Ethernet device tree is not
   in effect. If the boot settings or the device tree were just installed, reboot
-  and run qbone-setup again."
+  and run bone-setup again."
     fi
 fi
 
 # --------------------------------------------------------- emulator startup
 
 say "starting services"
-systemctl enable qbone-network qbone >/dev/null 2>&1 || true
-systemctl restart qbone-network
-systemctl restart qbone
+systemctl enable bone-network $BOARD >/dev/null 2>&1 || true
+systemctl restart bone-network
+systemctl restart $BOARD
 
 sleep 2
-if systemctl is-active --quiet qbone; then
+if systemctl is-active --quiet $BOARD; then
     IFACE=br0; [ -e /sys/class/net/br0 ] || IFACE=$(uplink)
     ADDR=$(ip -4 -o addr show "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
     say "running: http://${ADDR:-this board}/"
 else
-    die "the emulator did not start. journalctl -u qbone"
+    die "the emulator did not start. journalctl -u $BOARD"
 fi

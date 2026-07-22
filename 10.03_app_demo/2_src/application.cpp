@@ -195,7 +195,7 @@ void application_c::parse_commandline(int argc, char **argv)
                          "Serve the web frontend from <directory>.\n"
                          "Default is 10.05_web/3_frontend under QUNIBONE_DIR, which is the\n"
                          "source tree layout; an installed frontend lives somewhere else.", "",
-                         "", "/usr/share/qbone/frontend", "installed frontend");
+                         "", "/usr/share/bone/frontend", "installed frontend");
 #endif
 
 	// test options

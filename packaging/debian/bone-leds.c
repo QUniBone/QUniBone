@@ -1,4 +1,4 @@
-/* qbone-leds.c - QBone status indicator on three BeagleBone user LEDs.
+/* bone-leds.c - emulator status indicator on three BeagleBone user LEDs.
  *
  * Shows how far the board is through bring-up on a contiguous run of three
  * user LEDs - usr0, usr1, usr2. SD-card activity (the kernel's mmc0 trigger,
@@ -11,9 +11,9 @@
  *     XXX   starting       blink, 0.5 s
  *     bounce (X00 0X0 00X 0X0 ...)   ready, ~150 ms sweep, forever
  *
- * The phase comes from systemd and the qbone-setup marker, polled once a
+ * The phase comes from systemd and the bone-setup marker, polled once a
  * second. Nothing in the emulator is involved: the bounce simply means the
- * qbone service is active.
+ * emulator service is active.
  *
  * The three LEDs are found under /sys/class/leds by the usrN suffix of their
  * name, so the label prefix does not matter. Each is taken over once with
@@ -110,6 +110,27 @@ static void show(int a, int b, int c)
 	set_led(2, c);
 }
 
+/* The emulator is the one component compiled for a particular bus, so its unit
+ * carries the board's name. The two packages conflict, so exactly one of these
+ * is ever installed; look once and remember which. */
+static const char *emulator_unit(void)
+{
+	static const char *found;
+	if (!found) {
+		static const char *candidates[] = { "qbone.service", "unibone.service" };
+		found = candidates[0];
+		for (unsigned i = 0; i < 2; i++) {
+			char p[128];
+			snprintf(p, sizeof p, "/lib/systemd/system/%s", candidates[i]);
+			if (access(p, F_OK) == 0) {
+				found = candidates[i];
+				break;
+			}
+		}
+	}
+	return found;
+}
+
 static int svc_active(const char *unit)
 {
 	char cmd[128];
@@ -120,11 +141,11 @@ static int svc_active(const char *unit)
 /* 0 booting, 1 configuring, 2 starting, 3 ready */
 static int detect_phase(void)
 {
-	if (svc_active("qbone.service"))
+	if (svc_active(emulator_unit()))
 		return 3;
-	if (access("/var/lib/qbone/.setup-done", F_OK) == 0)
+	if (access("/var/lib/bone/.setup-done", F_OK) == 0)
 		return 2;
-	if (svc_active("qbone-setup.service"))
+	if (svc_active("bone-setup.service"))
 		return 1;
 	return 0;
 }

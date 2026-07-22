@@ -4,9 +4,9 @@
 # The address comes from DHCP and the appliance has no display, so on a first
 # boot there is nothing to read it off. This puts it on every console and in the
 # journal, where an attached serial terminal shows it without logging in and
-# `journalctl -u qbone-announce` shows it afterwards.
+# `journalctl -u bone-announce` shows it afterwards.
 #
-# usage: qbone-announce [interface]      (default br0)
+# usage: bone-announce [interface]      (default br0)
 
 set -e
 
@@ -29,20 +29,20 @@ while [ "$i" -lt "$TRIES" ]; do
 done
 
 if [ -z "$ADDR" ]; then
-    echo "qbone: no address on $IFACE after ${TRIES}s."
-    echo "qbone: check the network cable and the DHCP server."
+    echo "bone-announce: no address on $IFACE after ${TRIES}s."
+    echo "bone-announce: check the network cable and the DHCP server."
     # the gadget address is fixed, so it is worth naming even with no lease
     if [ -n "$(addr_of usb0)" ]; then
-        echo "qbone: reachable over USB at http://$(addr_of usb0)/"
+        echo "bone-announce: reachable over USB at http://$(addr_of usb0)/"
     fi
     exit 0
 fi
 
-echo "qbone is at $ADDR - web interface: http://$ADDR/"
+echo "$(hostname) is at $ADDR - web interface: http://$ADDR/"
 if [ -n "$(addr_of usb0)" ]; then
-    echo "qbone over USB: http://$(addr_of usb0)/"
+    echo "$(hostname) over USB: http://$(addr_of usb0)/"
 fi
 
 # reach a session that is already logged in on the serial console
-command -v wall >/dev/null 2>&1 && wall -n "qbone: http://$ADDR/" 2>/dev/null || true
+command -v wall >/dev/null 2>&1 && wall -n "$(hostname): http://$ADDR/" 2>/dev/null || true
 exit 0

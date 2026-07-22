@@ -2,22 +2,22 @@
 # Give this board its own name.
 #
 # Boards ship with one hostname, so several on a network collide: mDNS keeps
-# them all reachable by renaming the later ones qbone-2, qbone-3 and so on, but
+# them all reachable by renaming the later ones with a numeric suffix, but
 # which board gets which suffix follows boot order and can change. Naming a
 # board settles which is which.
 #
 # The name propagates by itself once set - <name>.local, the DNS-SD entry, the
 # DHCP lease in the router's table and the login banner all follow the system
-# hostname. Nothing in the emulator reads it: the "qbone" in paths, unit names
+# hostname. Nothing in the emulator reads it: the board name in the unit
 # and the package is the board type, not this machine's name.
 #
-# usage: qbone-rename <name>
-#        qbone-rename            show the current name
+# usage: bone-rename <name>
+#        bone-rename            show the current name
 
 set -e
 
-say() { echo "qbone-rename: $*"; }
-die() { echo "qbone-rename: $*" >&2; exit 1; }
+say() { echo "bone-rename: $*"; }
+die() { echo "bone-rename: $*" >&2; exit 1; }
 
 current=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "?")
 

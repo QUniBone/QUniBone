@@ -45,7 +45,7 @@
 static std::string default_station_address()
 {
     const char *dir = getenv("QUNIBONE_DIR");
-    std::string path = std::string(dir && *dir ? dir : "/var/lib/qbone") + "/delqa.mac";
+    std::string path = std::string(dir && *dir ? dir : "/var/lib/bone") + "/delqa.mac";
 
     // a value written on a previous run wins, keeping the address stable
     {

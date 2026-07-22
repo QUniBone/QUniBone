@@ -1,8 +1,8 @@
 [Unit]
 Description=PDP-11 Qbus device emulator
-Documentation=file:/usr/share/doc/qbone/README.Debian
-After=network.target qbone-network.service bbbio-set-sysconf.service
-Requires=qbone-network.service
+Documentation=file:/usr/share/bone/README.Debian
+After=network.target bone-network.service bone-setup.service bbbio-set-sysconf.service
+Requires=bone-network.service
 # bbbio-set-sysconf may reboot on a first boot to apply base-image settings; if
 # it does, the emulator must not have started, because a SIGTERM caught in its
 # PRU startup is uninterruptible and would hang the reboot. Ordering after it
@@ -10,8 +10,8 @@ Requires=qbone-network.service
 
 [Service]
 Type=simple
-Environment=QUNIBONE_DIR=/var/lib/qbone
-WorkingDirectory=/var/lib/qbone
+Environment=QUNIBONE_DIR=/var/lib/bone
+WorkingDirectory=/var/lib/bone
 # The PRU cores are driven through remoteproc, and pru_rproc binds them a
 # moment after the modules load: on a cold boot the emulator would otherwise
 # reach for PRUs that are not there yet and exit. Wait for both cores to carry
@@ -21,8 +21,8 @@ ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 100 ]; do [ -e /sys/bus/platform/de
 # The machine the board comes up as is a saved configuration: add
 # "--config <name>" to apply one at startup, e.g. to give the DELQA the host
 # interface it bridges through. Configurations are saved from the web
-# interface and live in /var/lib/qbone/configs.
-ExecStart=/usr/bin/qbone --port 80 --webroot /usr/share/qbone/frontend \
+# interface and live in /var/lib/bone/configs.
+ExecStart=/usr/bin/qbone --port 80 --webroot /usr/share/bone/frontend \
     --addresswidth 22
 # The bus engine runs at realtime priority and the PRU driver wants physical
 # memory, so this stays privileged.

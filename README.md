@@ -120,7 +120,7 @@ convenience:
    resolves without any setup on your network. Your client has to speak mDNS
    too: macOS does, Linux needs `libnss-mdns`, Windows needs Bonjour.
 2. **A service browser** — the web interface advertises itself over DNS-SD as
-   *QBone on \<hostname\>*, so it appears in Safari's Bonjour bookmarks, in
+   *\<hostname\> (QBone ddeeff)*, so it appears in Safari's Bonjour bookmarks, in
    `avahi-browse -rt _http._tcp`, and in the network view of most file managers.
 3. **Plug a USB cable into the board** — it appears as a network interface with
    the board at a fixed **192.168.7.2**, handing your machine an address on the
@@ -163,17 +163,18 @@ its own name instead:
 The name then follows everywhere by itself: `pdp11-front.local`, the DNS-SD
 entry, the DHCP lease in your router's table, and the login banner. Run it with
 no argument to see the current name. Nothing in the emulator depends on the
-hostname — the `qbone` in paths, unit names and the package is the board type,
-not the machine's name, and is unaffected.
+hostname — the board name in the emulator binary, its unit and the package is
+the board type, not the machine's name, and is unaffected.
 
 ### Command names
 
-The administrative commands are installed twice: under the board's own brand
-(`qbone-setup`, `unibone-rename`) and under a board-neutral `bone-` alias
-(`bone-setup`, `bone-rename`). Both boards are a BeagleBone whatever the bus, so
-this documentation uses the neutral names and they work on either board. The
-aliased tools are `bone-setup`, `bone-rename`, `bone-network`, `bone-resize` and
-`bone-announce`.
+Only the emulator itself is built for a particular bus. Everything around it —
+the setup, network, rename, resize, announce and LED tools, their units, and the
+files under `/etc/bone`, `/var/lib/bone` and `/usr/share/bone` — manages a
+BeagleBone carrying a cape and is the same on either board, so all of it is
+named `bone`. The board's name appears in three places: the emulator binary
+(`/usr/bin/qbone` or `/usr/bin/unibone`), the unit that runs it, and the package
+you install.
 
 ## Building from source
 

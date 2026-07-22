@@ -51,8 +51,10 @@ while getopts "u" opt; do
     esac
 done
 
-# Board identity. The lowercase brand names the package, its install paths and
-# its systemd units; the display brand is what the web interface shows. QBUS is
+# Board identity. The emulator is compiled for one bus, so the binary, the unit
+# that runs it and the package carry the board's name. Everything else - the
+# tools, their units, and the paths under /etc, /var/lib and /usr/share - is a
+# BeagleBone with a cape whichever bus it bridges, and is named "bone". QBUS is
 # qbone/QBone, UNIBUS is unibone/UniBone.
 if [ "$SUFFIX" = _u ]; then
     NAME=unibone; DISPLAY=UniBone; OTHER=qbone
@@ -60,17 +62,11 @@ else
     NAME=qbone;   DISPLAY=QBone;   OTHER=unibone
 fi
 
-# Rewrite the qbone/QBone brand to this board's, while keeping the hardware
-# tokens both boards share through the bus-agnostic QBone cape overlay: the
-# qbone-ddr reserved-memory node, the QBone.dtbo overlay filename, and the
-# "qbone" UIO device name. For the qbone board every substitution is identity,
-# so its package is byte-for-byte what it was before this was parametrized.
+# Name this board in the two files that have to say which bus they are for: the
+# emulator's unit, which names its binary, and the web interface, which shows
+# the brand. Everything else is installed as it is in the repository.
 rebrand() {
-    sed -e "s/qbone/$NAME/g" \
-        -e "s/QBone/$DISPLAY/g" \
-        -e "s/${NAME}-ddr/qbone-ddr/g" \
-        -e "s/${DISPLAY}\\.dtbo/QBone.dtbo/g" \
-        -e "s/grep -qi ${NAME}/grep -qi qbone/g"
+    sed -e "s/qbone/$NAME/g" -e "s/QBone/$DISPLAY/g"
 }
 
 BINARY=10.03_app_demo/4_deploy$SUFFIX/qbone-web
@@ -90,85 +86,65 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/etc/modprobe.d \
     $STAGE/etc/modules-load.d \
     $STAGE/usr/bin \
-    $STAGE/usr/share/$NAME/frontend/vendor \
+    $STAGE/usr/share/bone/frontend/vendor \
     $STAGE/usr/share/doc/$NAME \
-    $STAGE/etc/$NAME \
+    $STAGE/etc/bone \
     $STAGE/lib/systemd/system \
     $STAGE/lib/firmware \
     $STAGE/usr/sbin \
-    $STAGE/usr/share/$NAME/network \
-    $STAGE/var/lib/$NAME/images \
-    $STAGE/var/lib/$NAME/configs
+    $STAGE/usr/share/bone/network \
+    $STAGE/var/lib/bone/images \
+    $STAGE/var/lib/bone/configs
 
+# The emulator, built for this board's bus
 install -m 755 $BINARY $STAGE/usr/bin/$NAME
 install -m 755 $BINARY_DEMO $STAGE/usr/bin/$NAME-demo
+# its unit, the one that names the binary
+rebrand < packaging/debian/qbone.service > $STAGE/lib/systemd/system/$NAME.service
 # the web root: index.html and the manifest carry the display brand
-rebrand < 10.05_web/3_frontend/index.html > $STAGE/usr/share/$NAME/frontend/index.html
-rebrand < 10.05_web/3_frontend/site.webmanifest > $STAGE/usr/share/$NAME/frontend/site.webmanifest
-chmod 644 $STAGE/usr/share/$NAME/frontend/index.html \
-    $STAGE/usr/share/$NAME/frontend/site.webmanifest
-install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/$NAME/frontend/vendor/
+rebrand < 10.05_web/3_frontend/index.html > $STAGE/usr/share/bone/frontend/index.html
+rebrand < 10.05_web/3_frontend/site.webmanifest > $STAGE/usr/share/bone/frontend/site.webmanifest
+chmod 644 $STAGE/usr/share/bone/frontend/index.html \
+    $STAGE/usr/share/bone/frontend/site.webmanifest
+install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/bone/frontend/vendor/
 # favicons served from the web root beside index.html (binary, copied as-is)
 install -m 644 10.05_web/3_frontend/favicon.ico 10.05_web/3_frontend/favicon.svg \
     10.05_web/3_frontend/favicon-16x16.png 10.05_web/3_frontend/favicon-32x32.png \
     10.05_web/3_frontend/favicon-48x48.png 10.05_web/3_frontend/apple-touch-icon.png \
     10.05_web/3_frontend/android-chrome-192x192.png \
     10.05_web/3_frontend/android-chrome-512x512.png \
-    $STAGE/usr/share/$NAME/frontend/
-# systemd units, helper scripts and configs: brand rewritten, renamed to $NAME
-rebrand < packaging/debian/qbone.service > $STAGE/lib/systemd/system/$NAME.service
-rebrand < packaging/debian/network.conf > $STAGE/etc/$NAME/network.conf
-rebrand < packaging/debian/qbone-network > $STAGE/usr/sbin/$NAME-network
-rebrand < packaging/debian/qbone-setup > $STAGE/usr/sbin/$NAME-setup
-rebrand < packaging/debian/qbone-resize > $STAGE/usr/sbin/$NAME-resize
-rebrand < packaging/debian/qbone-announce > $STAGE/usr/sbin/$NAME-announce
-rebrand < packaging/debian/qbone-rename > $STAGE/usr/sbin/$NAME-rename
-chmod 755 $STAGE/usr/sbin/$NAME-network $STAGE/usr/sbin/$NAME-setup \
-    $STAGE/usr/sbin/$NAME-resize $STAGE/usr/sbin/$NAME-announce \
-    $STAGE/usr/sbin/$NAME-rename
-# Board-neutral aliases for the administrative tools. Both boards are a
-# BeagleBone whatever the bus, so one set of commands serves both and the
-# documentation can name them without picking a side. The branded names stay,
-# for anyone who thinks in their own board's terms. Only one board's package
-# installs at a time - they conflict - so these never contend.
-for verb in setup rename network resize announce; do
-    ln -sf $NAME-$verb $STAGE/usr/sbin/bone-$verb
-done
-rebrand < packaging/debian/qbone-network.service > $STAGE/lib/systemd/system/$NAME-network.service
-# runs <name>-setup --auto unattended; enabled on the distribution image, left
-# disabled on a package install where the operator drives the setup by hand
-rebrand < packaging/debian/qbone-setup.service > $STAGE/lib/systemd/system/$NAME-setup.service
-# status LEDs: a tiny standalone daemon, cross-compiled here. Enabled on the
-# image; shipped disabled in the package. Rebrand its unit-name/path literals
-# before compiling, since they are baked into the binary.
-LEDS_C=$(mktemp --suffix=.c)
-rebrand < packaging/debian/qbone-leds.c > "$LEDS_C"
-arm-linux-gnueabihf-gcc -O2 -Wall -o $STAGE/usr/sbin/$NAME-leds "$LEDS_C"
-rm -f "$LEDS_C"
-rebrand < packaging/debian/qbone-leds.service > $STAGE/lib/systemd/system/$NAME-leds.service
-# grows the root filesystem to fill the card on first boot; enabled on the image
-rebrand < packaging/debian/qbone-resize.service > $STAGE/lib/systemd/system/$NAME-resize.service
-# prints the board's address on the console once the bridge has one; enabled on
-# the image, where nobody knows the address yet
-rebrand < packaging/debian/qbone-announce.service > $STAGE/lib/systemd/system/$NAME-announce.service
-# DNS-SD advertisement for the web interface. A template: <name>-setup
-# substitutes the board's identifier and installs it under /etc/avahi/services,
-# so the file under /etc is generated rather than a conffile every board would
-# show as locally modified.
-rebrand < packaging/debian/avahi-qbone.service > $STAGE/usr/share/$NAME/avahi-$NAME.service
-chmod 644 $STAGE/usr/share/$NAME/avahi-$NAME.service
-rebrand < packaging/debian/README.Debian > $STAGE/usr/share/doc/$NAME/README.Debian
-chmod 644 $STAGE/lib/systemd/system/$NAME*.service $STAGE/etc/$NAME/network.conf \
-    $STAGE/usr/share/doc/$NAME/README.Debian
-# <name>-setup builds this into the loaded DTB so eth0 is a plain, bridgeable
-# NIC. The DTS content is the same eth0 fix for both boards; only its name
-# tracks the brand.
-install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts \
-    $STAGE/usr/share/$NAME/am335x-boneblack-$NAME.dts
-# the bridge that carries the emulated machine, installed by <name>-setup
+    $STAGE/usr/share/bone/frontend/
+
+# Everything below manages a BeagleBone carrying a cape and does the same job
+# whichever bus it bridges, so it installs exactly as it is in the repository.
+install -m 755 packaging/debian/bone-network packaging/debian/bone-setup \
+    packaging/debian/bone-resize packaging/debian/bone-announce \
+    packaging/debian/bone-rename $STAGE/usr/sbin/
+# status LEDs: a tiny standalone daemon, cross-compiled here
+arm-linux-gnueabihf-gcc -O2 -Wall -o $STAGE/usr/sbin/bone-leds packaging/debian/bone-leds.c
+install -m 644 packaging/debian/bone-network.service \
+    packaging/debian/bone-setup.service packaging/debian/bone-leds.service \
+    packaging/debian/bone-resize.service packaging/debian/bone-announce.service \
+    $STAGE/lib/systemd/system/
+install -m 644 packaging/debian/network.conf $STAGE/etc/bone/network.conf
+# DNS-SD advertisement for the web interface. A template: bone-setup substitutes
+# the board's name and identifier and installs it under /etc/avahi/services, so
+# the file under /etc is generated rather than a conffile every board would show
+# as locally modified.
+install -m 644 packaging/debian/avahi-bone.service $STAGE/usr/share/bone/avahi-bone.service
+# referenced by the units' Documentation=, and by policy under the package's doc
+# directory, which is named for the package
+install -m 644 packaging/debian/README.Debian $STAGE/usr/share/bone/README.Debian
+install -m 644 packaging/debian/README.Debian $STAGE/usr/share/doc/$NAME/README.Debian
+chmod 644 $STAGE/lib/systemd/system/$NAME.service
+
+# bone-setup builds this into the loaded DTB so eth0 is a plain, bridgeable
+# NIC. The same eth0 fix serves both boards.
+install -m 644 02_bbb_config/01_cape/am335x-boneblack-bone.dts \
+    $STAGE/usr/share/bone/am335x-boneblack-bone.dts
+# the bridge that carries the emulated machine, installed by bone-setup
 for f in br0.netdev br0.network eth0.network veth-br.network veth-pdp.network usb0.network; do
-    rebrand < packaging/debian/network/$f > $STAGE/usr/share/$NAME/network/$f
-    chmod 644 $STAGE/usr/share/$NAME/network/$f
+    install -m 644 packaging/debian/network/$f $STAGE/usr/share/bone/network/$f
 done
 
 # Both cape overlays: capemgr loads UniBone-00B0.dtbo from the cape's EEPROM
@@ -183,9 +159,8 @@ chmod 644 $STAGE/lib/firmware/QBone.dtbo
 
 # uio_pdrv_genirq matches no compatible of its own; the one it looks for is a
 # module parameter, so the overlay's node binds to nothing until it is set.
-rebrand < packaging/debian/modprobe-qbone.conf > $STAGE/etc/modprobe.d/$NAME.conf
-rebrand < packaging/debian/modules-load-qbone.conf > $STAGE/etc/modules-load.d/$NAME.conf
-chmod 644 $STAGE/etc/modprobe.d/$NAME.conf $STAGE/etc/modules-load.d/$NAME.conf
+install -m 644 packaging/debian/modprobe-bone.conf $STAGE/etc/modprobe.d/bone.conf
+install -m 644 packaging/debian/modules-load-bone.conf $STAGE/etc/modules-load.d/bone.conf
 rebrand < packaging/debian/changelog | gzip -9 -n -c > $STAGE/usr/share/doc/$NAME/changelog.Debian.gz
 chmod 644 $STAGE/usr/share/doc/$NAME/changelog.Debian.gz
 
@@ -215,9 +190,9 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
 
 # files under /etc, which dpkg must not overwrite once they have been edited
 {
-    echo "/etc/$NAME/network.conf"
-    echo "/etc/modprobe.d/$NAME.conf"
-    echo "/etc/modules-load.d/$NAME.conf"
+    echo "/etc/bone/network.conf"
+    echo "/etc/modprobe.d/bone.conf"
+    echo "/etc/modules-load.d/bone.conf"
 } > $STAGE/DEBIAN/conffiles
 
 cat > $STAGE/DEBIAN/preinst <<'PREINST'
@@ -247,19 +222,19 @@ if [ "$1" = configure ]; then
         systemctl daemon-reload || true
         # $2 is the previously configured version, empty on a first install.
         # Enabling only then keeps a unit the operator disabled disabled.
-        # The emulator needs boot settings qbone-setup applies and a reboot to
+        # The emulator needs boot settings bone-setup applies and a reboot to
         # pick them up, so a first install enables without starting.
         if [ -z "$2" ]; then
-            systemctl enable qbone-network.service qbone.service || true
+            systemctl enable bone-network.service qbone.service || true
         else
-            for unit in qbone-network.service qbone.service; do
+            for unit in bone-network.service qbone.service; do
                 if systemctl is-active --quiet $unit; then
                     systemctl restart $unit || true
                 fi
             done
         fi
     fi
-    echo "qbone: run 'sudo qbone-setup' to configure the boot settings, the"
+    echo "qbone: run 'sudo bone-setup' to configure the boot settings, the"
     echo "qbone: network and the services. See /usr/share/doc/qbone/README.Debian"
 fi
 POSTINST
@@ -268,14 +243,14 @@ cat > $STAGE/DEBIAN/prerm <<'PRERM'
 set -e
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
     systemctl stop qbone.service || true
-    systemctl stop qbone-network.service || true
+    systemctl stop bone-network.service || true
 fi
 PRERM
 cat > $STAGE/DEBIAN/postrm <<'POSTRM'
 #!/bin/sh
 set -e
 if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
-    systemctl disable qbone.service qbone-network.service || true
+    systemctl disable qbone.service bone-network.service || true
     systemctl daemon-reload || true
 fi
 POSTRM

@@ -5,7 +5,7 @@
 # appliance - the emulator installed, eth0 moved to the legacy Ethernet driver,
 # boot settings applied, the operator toolset added, nginx/cockpit removed, and
 # the sample operating systems and their boot configurations placed under
-# /var/lib/<name>. NAME picks the board: qbone (QBUS, the default) or unibone
+# /var/lib/bone. NAME picks the board: qbone (QBUS, the default) or unibone
 # (UNIBUS); it sets the package installed, the hostname and the image name.
 #
 # The Linux-specific work (loop-mounting ext4, an armhf chroot, resizing) runs
@@ -18,7 +18,7 @@
 #   images/              disk images to ship (*.dsk, *.rl02, ...)
 #   configs/             boot configurations (*.json) naming those images
 # and from the repository:
-#   02_bbb_config/01_cape/am335x-boneblack-qbone.dts
+#   02_bbb_config/01_cape/am335x-boneblack-bone.dts
 #   packaging/debian/network/*
 #
 # Output: $OUT (default ./<name>-dist.img), ready to write to a card.
@@ -50,7 +50,7 @@ ls "$DIST"/${NAME}_*_armhf.deb >/dev/null 2>&1 || { echo "missing $DIST/${NAME}_
 [ "$(ls "$DIST"/${NAME}_*_armhf.deb | wc -l)" -eq 1 ] || { echo "expected exactly one $NAME deb in $DIST" >&2; exit 1; }
 [ -d "$DIST/images" ] || { echo "missing $DIST/images" >&2; exit 1; }
 [ -d "$DIST/configs" ] || { echo "missing $DIST/configs" >&2; exit 1; }
-DTS=$HERE/02_bbb_config/01_cape/am335x-boneblack-qbone.dts
+DTS=$HERE/02_bbb_config/01_cape/am335x-boneblack-bone.dts
 NET=$HERE/packaging/debian/network
 [ -r "$DTS" ] || { echo "missing $DTS" >&2; exit 1; }
 
@@ -171,10 +171,10 @@ KVER=$(basename "$(ls -d /boot/dtbs/*/ | head -1)")
 KMM=$(echo "$KVER" | cut -d. -f1-2)
 SRC=/opt/source/dtb-${KMM}.x
 BASE_DTB=am335x-boneblack-uboot.dtb
-cp /tmp/in/board.dts "$SRC/src/arm/ti/omap/am335x-boneblack-${NAME}.dts"
+cp /tmp/in/board.dts "$SRC/src/arm/ti/omap/am335x-boneblack-bone.dts"
 ( cd "$SRC" && make ARCH=arm CPP=cpp DTC=dtc \
-    src/arm/ti/omap/am335x-boneblack-${NAME}.dtb >/dev/null 2>&1 )
-DTB="$SRC/src/arm/ti/omap/am335x-boneblack-${NAME}.dtb"
+    src/arm/ti/omap/am335x-boneblack-bone.dtb >/dev/null 2>&1 )
+DTB="$SRC/src/arm/ti/omap/am335x-boneblack-bone.dtb"
 [ -e "$DTB" ] || { echo "device tree build failed" >&2; exit 1; }
 cp "/boot/dtbs/$KVER/$BASE_DTB" "/boot/dtbs/$KVER/$BASE_DTB.stock"
 cp "$DTB" "/boot/dtbs/$KVER/$BASE_DTB"
@@ -193,19 +193,19 @@ ISSUE
 chmod 644 /etc/issue
 
 # the sample operating systems and their boot configurations
-install -d -m 755 /var/lib/${NAME}/images /var/lib/${NAME}/configs
-cp /tmp/in/images/* /var/lib/${NAME}/images/
-cp /tmp/in/configs/* /var/lib/${NAME}/configs/
+install -d -m 755 /var/lib/bone/images /var/lib/bone/configs
+cp /tmp/in/images/* /var/lib/bone/images/
+cp /tmp/in/configs/* /var/lib/bone/configs/
 
 rm -rf /tmp/in
 CHROOT
 
 echo "-- enabling the services (offline, from the host)"
-# <name>-setup.service runs the setup --auto on first boot so the image
+# bone-setup.service runs the setup --auto on first boot so the image
 # configures its network bridge with no login; the image enables it, a package
 # install leaves it disabled
 # <name>-announce prints the board's address on the console once it has one
-systemctl --root=/mnt enable ${NAME}-network.service ${NAME}.service ${NAME}-setup.service ${NAME}-leds.service ${NAME}-resize.service ${NAME}-announce.service >/dev/null 2>&1 || true
+systemctl --root=/mnt enable bone-network.service ${NAME}.service bone-setup.service bone-leds.service bone-resize.service bone-announce.service >/dev/null 2>&1 || true
 # mDNS: <name>.local, and the DNS-SD advertisement the package drops in
 # /etc/avahi/services. The postinst enables it, this makes sure of it.
 systemctl --root=/mnt enable avahi-daemon.service >/dev/null 2>&1 || true
@@ -244,14 +244,14 @@ rm -f /mnt/etc/ssh/ssh_host_*
 # The base image processes several first-boot actions through bbbio-set-sysconf
 # and reboots for each: regenerating ssh host keys (ssh_regenerate) and growing
 # the root filesystem (growpart/growpart_done). sshd-keygen.service and
-# <name>-resize.service now do both without those reboots - and the base's
+# bone-resize.service now do both without those reboots - and the base's
 # reboot lands while the emulator is mid-startup, wedged in a PRU syscall,
 # hanging the reboot. Drop the flags so bbbio-set-sysconf has nothing to do.
 rm -f /mnt/etc/bbb.io/ssh_regenerate \
       /mnt/etc/bbb.io/growpart /mnt/etc/bbb.io/growpart_done
 echo "$NAME" > /mnt/etc/hostname
 sed -i "s/\\bBeagleBone\\b/$NAME/g; s/127\\.0\\.1\\.1.*/127.0.1.1\\t$NAME/" /mnt/etc/hosts 2>/dev/null || true
-rm -f /mnt/var/lib/${NAME}/settings.json
+rm -f /mnt/var/lib/bone/settings.json
 find /mnt/var/log -type f -exec truncate -s0 {} + 2>/dev/null || true
 rm -rf /mnt/var/lib/apt/lists/* /mnt/var/cache/apt/archives/*.deb
 rm -f /mnt/root/.bash_history /mnt/home/*/.bash_history 2>/dev/null || true
