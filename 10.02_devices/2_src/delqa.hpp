@@ -45,6 +45,7 @@
 
 #include "parameter.hpp"
 #include "qunibusdevice.hpp"
+#include "ether_bridge.hpp"
 
 class delqa_c: public qunibusdevice_c {
 public:
@@ -259,10 +260,7 @@ private:
 
     // eth0 bridge: an AF_PACKET raw socket in promiscuous mode shares the
     // host interface.  Runs on worker instance 1.
-    int bridge_fd;
-    int bridge_ifindex;
-    bool bridge_open(void);
-    void bridge_close(void);
+    ether_bridge_c bridge = ether_bridge_c("delqa");
     void bridge_worker(void);
     // Pulse the activity LED and lamp; called for traffic in either direction.
     void note_activity(void);

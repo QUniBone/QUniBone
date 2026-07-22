@@ -24,17 +24,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
 #include <fstream>
 #include <string>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
-#include <netinet/in.h>
-#include <linux/if_packet.h>
-#include <linux/filter.h>
-#include <linux/if_ether.h>
 
 #include "logger.hpp"
 #include "timeout.hpp"
@@ -120,9 +111,7 @@ delqa_c::delqa_c() :
         pending_wakeup(false),
         rbdl_ba(0),
         xbdl_ba(0),
-        carrier_off_ms(0),
-        bridge_fd(-1),
-        bridge_ifindex(-1)
+        carrier_off_ms(0)
 {
     set_workers_count(2); // 0: BDL engine, 1: eth0 bridge receiver
 
@@ -1286,90 +1275,6 @@ void delqa_c::enqueue_packet(enum packet_c::type_e type, const std::vector<uint8
 // the software filter below decides which frames reach the emulated
 // controller.
 
-// bridge_open(): bind a raw socket to the configured interface and enable
-// promiscuous reception.
-bool delqa_c::bridge_open(void)
-{
-    int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (fd < 0) {
-        ERROR("bridge: cannot open raw socket: %s (root required)", strerror(errno));
-        return false;
-    }
-
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, interface.value.c_str(), sizeof(ifr.ifr_name) - 1);
-    if (ioctl(fd, SIOCGIFINDEX, &ifr) < 0) {
-        ERROR("bridge: no such interface \"%s\"", interface.value.c_str());
-        close(fd);
-        return false;
-    }
-    bridge_ifindex = ifr.ifr_ifindex;
-
-    struct sockaddr_ll sll;
-    memset(&sll, 0, sizeof(sll));
-    sll.sll_family = AF_PACKET;
-    sll.sll_protocol = htons(ETH_P_ALL);
-    sll.sll_ifindex = bridge_ifindex;
-    if (bind(fd, (struct sockaddr *) &sll, sizeof(sll)) < 0) {
-        ERROR("bridge: cannot bind to \"%s\": %s", interface.value.c_str(),
-                strerror(errno));
-        close(fd);
-        return false;
-    }
-
-    // the DELQA station address is not the host MAC: receive everything
-    struct packet_mreq mreq;
-    memset(&mreq, 0, sizeof(mreq));
-    mreq.mr_ifindex = bridge_ifindex;
-    mreq.mr_type = PACKET_MR_PROMISC;
-    if (setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
-        ERROR("bridge: cannot enable promiscuous mode on \"%s\": %s",
-                interface.value.c_str(), strerror(errno));
-        close(fd);
-        return false;
-    }
-
-    // Queue only frames this controller could want: our station address,
-    // broadcast and multicast. Promiscuous mode is needed to see the station
-    // address at all, but it also floods the socket with unicast for other
-    // hosts; on a busy LAN that fills the receive buffer and the kernel drops
-    // frames the emulation is waiting for. Filtering in the kernel keeps the
-    // socket drainable on this single-core board.
-    const uint8_t *sa = station_address;
-    uint32_t sa_hi = ((uint32_t) sa[0] << 24) | ((uint32_t) sa[1] << 16)
-            | ((uint32_t) sa[2] << 8) | sa[3];
-    uint32_t sa_lo = ((uint32_t) sa[4] << 8) | sa[5];
-    struct sock_filter code[] = {
-        { BPF_LD | BPF_B | BPF_ABS, 0, 0, 0 },      // A = dst[0]
-        { BPF_ALU | BPF_AND | BPF_K, 0, 0, 1 },     // A &= multicast bit
-        { BPF_JMP | BPF_JEQ | BPF_K, 0, 4, 0 },     // set? -> accept
-        { BPF_LD | BPF_W | BPF_ABS, 0, 0, 0 },      // A = dst[0..3]
-        { BPF_JMP | BPF_JEQ | BPF_K, 0, 3, sa_hi },
-        { BPF_LD | BPF_H | BPF_ABS, 0, 0, 4 },      // A = dst[4..5]
-        { BPF_JMP | BPF_JEQ | BPF_K, 0, 1, sa_lo },
-        { BPF_RET | BPF_K, 0, 0, 0xffff },          // accept
-        { BPF_RET | BPF_K, 0, 0, 0 },               // drop
-    };
-    struct sock_fprog prog;
-    prog.len = sizeof(code) / sizeof(code[0]);
-    prog.filter = code;
-    if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &prog, sizeof(prog)) < 0)
-        WARNING("bridge: cannot attach address filter: %s", strerror(errno));
-
-    bridge_fd = fd;
-    INFO("bridge: attached to \"%s\"", interface.value.c_str());
-    return true;
-}
-
-void delqa_c::bridge_close(void)
-{
-    if (bridge_fd >= 0) {
-        close(bridge_fd);
-        bridge_fd = -1;
-    }
-}
-
 // active_physical_address(): the one physical address the receive logic
 // recognises - the first setup entry with a clear multicast bit, or the
 // PROM station address when the table names none (EK-DELQA-UG-002 section
@@ -1573,8 +1478,8 @@ void delqa_c::bridge_worker(void)
     worker_init_realtime_priority(rt_device);
 
     while (!workers_terminate) {
-        if (bridge_fd < 0) {
-            if (!bridge_open()) {
+        if (!bridge.is_open()) {
+            if (!bridge.open(interface.value, station_address)) {
                 // the interface may appear later; retry in small steps so
                 // workers_stop() sees a quick exit
                 for (unsigned i = 0; i < 40 && !workers_terminate; i++)
@@ -1588,7 +1493,7 @@ void delqa_c::bridge_worker(void)
         // between transmitting a MOP request and re-arming the receiver -
         // exactly when the reply arrives. Frames read here are queued by
         // bridge_receive and delivered once RE returns. The kernel address
-        // filter installed in bridge_open keeps this cheap enough not to
+        // filter installed by the bridge keeps this cheap enough not to
         // starve the BDL worker on this single-core board.
         // In loopback no wire frame is wanted at all.
         uint16_t c = csr;
@@ -1597,40 +1502,29 @@ void delqa_c::bridge_worker(void)
             continue;
         }
 
-        struct pollfd pfd;
-        pfd.fd = bridge_fd;
-        pfd.events = POLLIN;
         // short timeout: workers_stop() expects cooperative exit within 100ms
-        int ready = poll(&pfd, 1, 50);
-        if (ready <= 0)
-            continue; // timeout or signal: re-check workers_terminate
-
-        struct sockaddr_ll from;
-        socklen_t fromlen = sizeof(from);
-        ssize_t len = recvfrom(bridge_fd, frame, sizeof(frame), MSG_DONTWAIT,
-                (struct sockaddr *) &from, &fromlen);
+        bool outgoing;
+        int len = bridge.receive(frame, sizeof(frame), 50, &outgoing);
+        if (len == 0)
+            continue; // nothing arrived: re-check workers_terminate
         if (len < 0) {
-            if (errno == EAGAIN || errno == EINTR)
-                continue;
-            WARNING("bridge: receive error: %s", strerror(errno));
-            bridge_close();
+            bridge.close();
             continue;
         }
 
         // trace every frame addressed to the emulated station as it leaves
         // the socket, before any filtering, to locate where MOP replies die
         if (len >= 12 && memcmp(frame, station_address, 6) == 0)
-            DEBUG("rxloop to-station pkttype=%d src=%02x:%02x:%02x:%02x:%02x:%02x len=%d",
-                 (int) from.sll_pkttype, frame[6], frame[7], frame[8], frame[9],
-                 frame[10], frame[11], (int) len);
+            DEBUG("rxloop to-station outgoing=%d src=%02x:%02x:%02x:%02x:%02x:%02x len=%d",
+                 (int) outgoing, frame[6], frame[7], frame[8], frame[9],
+                 frame[10], frame[11], len);
 
         // Our own transmissions come back on the raw socket as outgoing
         // frames - never receive them (on real Ethernet a station does not
         // hear itself). Other outgoing frames pass: they are the
         // BeagleBone's own traffic, which the PDP-11 can talk to over the
         // shared interface.
-        if (from.sll_pkttype == PACKET_OUTGOING && len >= 12
-                && memcmp(frame + 6, station_address, 6) == 0)
+        if (outgoing && len >= 12 && memcmp(frame + 6, station_address, 6) == 0)
             continue;
 
         if (!bridge_accept(frame, len))
@@ -1640,7 +1534,7 @@ void delqa_c::bridge_worker(void)
         bridge_receive(frame, len);
     }
 
-    bridge_close();
+    bridge.close();
 }
 
 // note_activity(): a frame moved in one direction or the other.
@@ -1681,32 +1575,13 @@ bool delqa_c::transmit_packet(const std::vector<uint8_t> &data)
         return true;
     }
 
-    if (bridge_fd < 0)
+    if (!bridge.is_open())
         return false; // no carrier
 
-    // pad to the Ethernet minimum, the raw socket does not
-    std::vector<uint8_t> frame(data);
-    if (frame.size() < ETH_MIN_PACKET)
-        frame.resize(ETH_MIN_PACKET, 0);
-
-    struct sockaddr_ll sll;
-    memset(&sll, 0, sizeof(sll));
-    sll.sll_family = AF_PACKET;
-    sll.sll_ifindex = bridge_ifindex;
-    sll.sll_halen = 6;
-    memcpy(sll.sll_addr, frame.data(), 6);
-    // the frame's ethertype becomes skb->protocol: local taps bound to a
-    // specific protocol (a mopd on this host) only see the looped frame if
-    // it matches
-    sll.sll_protocol = htons((frame[12] << 8) | frame[13]);
-
-    ssize_t sent = sendto(bridge_fd, frame.data(), frame.size(), 0,
-            (struct sockaddr *) &sll, sizeof(sll));
-    if (sent != (ssize_t) frame.size()) {
-        WARNING("bridge: send failed: %s", strerror(errno));
+    if (!bridge.send(data.data(), data.size()))
         return false;
-    }
-    DEBUG("bridge: transmitted %d bytes", (int) frame.size());
+
+    DEBUG("bridge: transmitted %d bytes", (int) data.size());
     note_activity();
     return true;
 }
