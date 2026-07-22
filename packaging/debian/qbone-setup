@@ -249,6 +249,43 @@ else
     say "  the emulated machine will not reach the network until the bridge is set up"
 fi
 
+# ------------------------------------------------------- service discovery
+
+# The DNS-SD advertisement, with this board's identifier substituted into the
+# template. The identifier is the last three octets of the uplink MAC, the same
+# bytes the emulated Ethernet controller takes its station address from, so a
+# board keeps one identity across the LAN and the emulated machine. Without an
+# eth0 the name carries no identifier and mDNS alone separates the boards.
+install_avahi_service() {
+    src=/usr/share/qbone/avahi-qbone.service
+    dst=/etc/avahi/services/qbone.service
+    [ -r "$src" ] || return 1
+    # only where an avahi is installed to read it
+    [ -d /etc/avahi/services ] || return 1
+
+    mac=$(cat /sys/class/net/eth0/address 2>/dev/null || true)
+    id=$(echo "$mac" | tr -d ':' | tr 'A-Z' 'a-z' | cut -c7-12)
+    tmp=$(mktemp)
+    if [ -n "$id" ]; then
+        sed "s|QBone ID|QBone $id|" "$src" > "$tmp"
+    else
+        # drop the parenthesised identifier rather than advertise an empty one
+        sed "s| (QBone ID)||" "$src" > "$tmp"
+    fi
+    if cmp -s "$tmp" "$dst"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    cp "$tmp" "$dst"
+    chmod 644 "$dst"
+    rm -f "$tmp"
+    return 0
+}
+
+if install_avahi_service; then
+    say "advertising the web interface over DNS-SD"
+fi
+
 # --------------------------------------------------- reboot between passes
 
 if [ -n "$NEED_REBOOT" ]; then

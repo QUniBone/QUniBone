@@ -97,7 +97,6 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/lib/firmware \
     $STAGE/usr/sbin \
     $STAGE/usr/share/$NAME/network \
-    $STAGE/etc/avahi/services \
     $STAGE/var/lib/$NAME/images \
     $STAGE/var/lib/$NAME/configs
 
@@ -123,8 +122,18 @@ rebrand < packaging/debian/qbone-network > $STAGE/usr/sbin/$NAME-network
 rebrand < packaging/debian/qbone-setup > $STAGE/usr/sbin/$NAME-setup
 rebrand < packaging/debian/qbone-resize > $STAGE/usr/sbin/$NAME-resize
 rebrand < packaging/debian/qbone-announce > $STAGE/usr/sbin/$NAME-announce
+rebrand < packaging/debian/qbone-rename > $STAGE/usr/sbin/$NAME-rename
 chmod 755 $STAGE/usr/sbin/$NAME-network $STAGE/usr/sbin/$NAME-setup \
-    $STAGE/usr/sbin/$NAME-resize $STAGE/usr/sbin/$NAME-announce
+    $STAGE/usr/sbin/$NAME-resize $STAGE/usr/sbin/$NAME-announce \
+    $STAGE/usr/sbin/$NAME-rename
+# Board-neutral aliases for the administrative tools. Both boards are a
+# BeagleBone whatever the bus, so one set of commands serves both and the
+# documentation can name them without picking a side. The branded names stay,
+# for anyone who thinks in their own board's terms. Only one board's package
+# installs at a time - they conflict - so these never contend.
+for verb in setup rename network resize announce; do
+    ln -sf $NAME-$verb $STAGE/usr/sbin/bone-$verb
+done
 rebrand < packaging/debian/qbone-network.service > $STAGE/lib/systemd/system/$NAME-network.service
 # runs <name>-setup --auto unattended; enabled on the distribution image, left
 # disabled on a package install where the operator drives the setup by hand
@@ -142,10 +151,12 @@ rebrand < packaging/debian/qbone-resize.service > $STAGE/lib/systemd/system/$NAM
 # prints the board's address on the console once the bridge has one; enabled on
 # the image, where nobody knows the address yet
 rebrand < packaging/debian/qbone-announce.service > $STAGE/lib/systemd/system/$NAME-announce.service
-# DNS-SD advertisement for the web interface, read by avahi-daemon when the
-# system has one; inert otherwise
-rebrand < packaging/debian/avahi-qbone.service > $STAGE/etc/avahi/services/$NAME.service
-chmod 644 $STAGE/etc/avahi/services/$NAME.service
+# DNS-SD advertisement for the web interface. A template: <name>-setup
+# substitutes the board's identifier and installs it under /etc/avahi/services,
+# so the file under /etc is generated rather than a conffile every board would
+# show as locally modified.
+rebrand < packaging/debian/avahi-qbone.service > $STAGE/usr/share/$NAME/avahi-$NAME.service
+chmod 644 $STAGE/usr/share/$NAME/avahi-$NAME.service
 rebrand < packaging/debian/README.Debian > $STAGE/usr/share/doc/$NAME/README.Debian
 chmod 644 $STAGE/lib/systemd/system/$NAME*.service $STAGE/etc/$NAME/network.conf \
     $STAGE/usr/share/doc/$NAME/README.Debian
@@ -207,7 +218,6 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     echo "/etc/$NAME/network.conf"
     echo "/etc/modprobe.d/$NAME.conf"
     echo "/etc/modules-load.d/$NAME.conf"
-    echo "/etc/avahi/services/$NAME.service"
 } > $STAGE/DEBIAN/conffiles
 
 cat > $STAGE/DEBIAN/preinst <<'PREINST'

@@ -1,0 +1,73 @@
+#!/bin/sh
+# Give this board its own name.
+#
+# Boards ship with one hostname, so several on a network collide: mDNS keeps
+# them all reachable by renaming the later ones qbone-2, qbone-3 and so on, but
+# which board gets which suffix follows boot order and can change. Naming a
+# board settles which is which.
+#
+# The name propagates by itself once set - <name>.local, the DNS-SD entry, the
+# DHCP lease in the router's table and the login banner all follow the system
+# hostname. Nothing in the emulator reads it: the "qbone" in paths, unit names
+# and the package is the board type, not this machine's name.
+#
+# usage: qbone-rename <name>
+#        qbone-rename            show the current name
+
+set -e
+
+say() { echo "qbone-rename: $*"; }
+die() { echo "qbone-rename: $*" >&2; exit 1; }
+
+current=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "?")
+
+if [ $# -eq 0 ]; then
+    echo "$current"
+    exit 0
+fi
+[ $# -eq 1 ] || die "usage: $0 <name>"
+
+new=$1
+
+# A hostname is one DNS label: letters, digits and hyphens, not starting or
+# ending with a hyphen, at most 63 characters. Anything else and avahi, the
+# DHCP client and the resolver disagree about what the board is called.
+echo "$new" | grep -qE '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$' \
+    || die "\"$new\" is not a valid hostname: letters, digits and inner hyphens, up to 63 characters"
+
+[ "$(id -u)" = 0 ] || die "must run as root"
+
+if [ "$new" = "$current" ]; then
+    say "already named $new"
+    exit 0
+fi
+
+if command -v hostnamectl >/dev/null 2>&1; then
+    hostnamectl set-hostname "$new"
+else
+    # running name first: a failure here leaves nothing changed
+    hostname "$new"
+    echo "$new" > /etc/hostname
+fi
+
+# hostnamectl does not touch /etc/hosts, and a 127.0.1.1 line naming the old
+# host is what makes sudo complain about resolving the hostname.
+if grep -q '^127\.0\.1\.1' /etc/hosts 2>/dev/null; then
+    sed -i "s|^127\.0\.1\.1.*|127.0.1.1\t$new|" /etc/hosts
+else
+    printf '127.0.1.1\t%s\n' "$new" >> /etc/hosts
+fi
+
+# avahi publishes the new name; networkd re-registers it with the DHCP server
+# so the router's lease table follows.
+for unit in avahi-daemon.service systemd-networkd.service; do
+    systemctl is-enabled --quiet "$unit" 2>/dev/null || continue
+    systemctl restart "$unit" >/dev/null 2>&1 || true
+done
+
+say "renamed $current to $new"
+
+addr=$(ip -4 -o addr show dev br0 scope global 2>/dev/null |
+    awk '{print $4}' | cut -d/ -f1 | head -1)
+[ -n "$addr" ] && say "reachable at http://$new.local/ and http://$addr/"
+exit 0

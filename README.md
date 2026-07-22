@@ -136,7 +136,8 @@ convenience:
    networking is.
 
 The address is also printed on the console and into the journal once the board
-has one (`journalctl -u qbone-announce`).
+has one — `journalctl -u '*-announce'`, or re-run `sudo bone-announce` to print
+it again.
 
 Then open `http://<address>/`. The web interface binds port 80 and asks you to
 set an admin password on first use.
@@ -147,21 +148,32 @@ Addresses never collide: each board's DHCP lease is keyed to its own uplink MAC,
 and each emulated Ethernet controller derives its station address from that MAC
 as well.
 
-Names do. Every image ships the same hostname, so a second board finds `qbone`
-taken and mDNS renames it `qbone-2.local`, a third `qbone-3.local`, and so on.
-That keeps them reachable but does not tell you which physical board is which —
-and which one gets `-2` depends on boot order.
+Names would, so each board carries an identifier taken from its uplink MAC and
+advertises itself as **`qbone (QBone ddeeff)`**. Two boards are told apart in a
+service browser out of the box, and the identifier stays with a board however it
+is named.
 
-Give each board its own name:
+The hostname is still shared, so a second board finds `qbone` taken and mDNS
+renames it `qbone-2.local`, a third `qbone-3.local`. They stay reachable, but
+which board gets which suffix follows boot order and can change. Give each board
+its own name instead:
 
-    sudo hostnamectl set-hostname pdp11-front
-    sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tpdp11-front/' /etc/hosts
-    sudo systemctl restart avahi-daemon systemd-networkd
+    sudo bone-rename pdp11-front
 
 The name then follows everywhere by itself: `pdp11-front.local`, the DNS-SD
-entry, the DHCP lease in your router's table, and the login banner. Nothing in
-the emulator depends on the hostname — the `qbone` in paths, unit names and the
-package is the board type, not the machine's name, and is unaffected.
+entry, the DHCP lease in your router's table, and the login banner. Run it with
+no argument to see the current name. Nothing in the emulator depends on the
+hostname — the `qbone` in paths, unit names and the package is the board type,
+not the machine's name, and is unaffected.
+
+### Command names
+
+The administrative commands are installed twice: under the board's own brand
+(`qbone-setup`, `unibone-rename`) and under a board-neutral `bone-` alias
+(`bone-setup`, `bone-rename`). Both boards are a BeagleBone whatever the bus, so
+this documentation uses the neutral names and they work on either board. The
+aliased tools are `bone-setup`, `bone-rename`, `bone-network`, `bone-resize` and
+`bone-announce`.
 
 ## Building from source
 
