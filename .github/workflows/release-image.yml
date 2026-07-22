@@ -1,30 +1,18 @@
 name: release-image
 
-# On-demand appliance image. build-image.sh turns the rcn-ee base image into a
-# card-ready QBone image, and it needs inputs that are not in the repository:
-# the base image, and the sample operating-system disk images with their boot
-# configurations. Supply those as URLs when dispatching. The qbone package is
-# built here from the checked-out sources. The finished image is compressed and
-# attached to a GitHub Release under the tag you name.
-#
-# The assets tarball must expand to `images/` and `configs/` directories at its
-# top level (tar autodetects gzip/xz):
-#   images/   the disk images to ship (*.dsk, *.rl02, ...)
-#   configs/  the boot configurations (*.json) that name them
+# On-demand appliance images for both boards - qbone (QBUS) and unibone
+# (UNIBUS). build-image.sh turns the rcn-ee base image into a card-ready image;
+# the base image and each board's OS-images/configs are fetched from the repo
+# Actions variables BASE_IMAGE_URL, ASSETS_URL_QBONE and ASSETS_URL_UNIBONE.
+# Each asset set expands to images/ and configs/ directories at its top level.
+# Both images are compressed and attached to a GitHub Release under the tag you
+# name.
 
 on:
   workflow_dispatch:
     inputs:
-      base_image_url:
-        description: 'base image URL (rcn-ee am335x debian-13 base-v6.12 armhf, mirrored on vaxbusters)'
-        required: true
-        default: 'https://vaxbusters.org/qbone/base-v6.12-armhf.img.xz'
-      assets_url:
-        description: 'URL of a tar(.gz/.xz) with images/ and configs/ at top level'
-        required: true
-        default: 'https://vaxbusters.org/qbone/qbone-assets.tar.gz'
       release_tag:
-        description: 'Tag for the GitHub Release the image is published under (e.g. image-2026-07-21)'
+        description: 'Tag for the GitHub Release the images are published under (e.g. image-2026-07-22)'
         required: true
       grow:
         description: 'Build headroom while customising (GROW)'
@@ -35,12 +23,24 @@ on:
         required: false
         default: '400'
 
+# The base OS version the images are built on, named in the release notes.
+env:
+  BASE_VERSION: 'Debian 13.6, base-v6.12 armhf (2026-07-15)'
+
 permissions:
-  contents: write   # create the GitHub Release and upload the image
+  contents: write   # create the GitHub Release and upload the images
 
 jobs:
   image:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: qbone
+            flag: ''
+          - board: unibone
+            flag: '-u'
     steps:
       - uses: actions/checkout@v7
 
@@ -59,53 +59,62 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             dpkg-dev device-tree-compiler gcc-arm-linux-gnueabihf libc6-dev-armhf-cross xz-utils
 
-      - name: Cross-compile QBUS
-        run: ./crossbuild.sh
-
-      - name: Build the package
-        run: ./packaging/build-deb.sh
+      - name: Build the ${{ matrix.board }} package
+        run: |
+          ./crossbuild.sh ${{ matrix.flag }}
+          ./packaging/build-deb.sh ${{ matrix.flag }}
 
       - name: Assemble the staging directory
+        env:
+          BASE_IMAGE_URL: ${{ vars.BASE_IMAGE_URL }}
+          ASSETS_URL_QBONE: ${{ vars.ASSETS_URL_QBONE }}
+          ASSETS_URL_UNIBONE: ${{ vars.ASSETS_URL_UNIBONE }}
         run: |
+          case "${{ matrix.board }}" in
+            unibone) assets=$ASSETS_URL_UNIBONE ;;
+            *)       assets=$ASSETS_URL_QBONE ;;
+          esac
+          [ -n "$BASE_IMAGE_URL" ] && [ -n "$assets" ] \
+            || { echo "set the BASE_IMAGE_URL and ASSETS_URL_* repo variables" >&2; exit 1; }
           mkdir -p dist/images dist/configs
-          cp qbone_*_armhf.deb dist/
+          cp ${{ matrix.board }}_*_armhf.deb dist/
           echo "-- fetching the base image"
-          curl --fail-with-body -L -o dist/base.img.xz "${{ inputs.base_image_url }}"
+          curl --fail-with-body -L -o dist/base.img.xz "$BASE_IMAGE_URL"
           echo "-- fetching the OS images and configs"
-          curl --fail-with-body -L -o /tmp/assets.tar "${{ inputs.assets_url }}"
+          curl --fail-with-body -L -o /tmp/assets.tar "$assets"
           tar -xf /tmp/assets.tar -C dist
           test -d dist/images && test -d dist/configs \
-            || { echo "assets tarball must contain images/ and configs/ at top level" >&2; exit 1; }
+            || { echo "assets must contain images/ and configs/ at top level" >&2; exit 1; }
           ls dist dist/images dist/configs
 
       - name: Build the image
         env:
           GROW: ${{ inputs.grow }}
           MARGIN_MB: ${{ inputs.margin_mb }}
-        run: DIST=./dist OUT=./qbone-dist.img ./packaging/build-image.sh
+          NAME: ${{ matrix.board }}
+        run: DIST=./dist ./packaging/build-image.sh
 
       - name: Compress the image
         # build-image.sh writes the image as root from its privileged container;
         # take ownership so xz can set the compressed file's group, then compress.
         run: |
-          sudo chown "$(id -u):$(id -g)" qbone-dist.img
-          xz -T0 qbone-dist.img
+          img=${{ matrix.board }}-dist.img
+          sudo chown "$(id -u):$(id -g)" "$img"
+          xz -T0 "$img"
 
       - name: Publish the image to a GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          img=qbone-dist.img.xz
+          img=${{ matrix.board }}-dist.img.xz
           tag='${{ inputs.release_tag }}'
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "$img" --clobber
-          else
-            gh release create "$tag" "$img" \
-              --title "$tag" \
-              --notes "QBone appliance image, built from ${{ inputs.base_image_url }}"
-          fi
+          # both matrix legs target one release; create is best-effort (the other
+          # leg may already have made it), then each uploads its own asset
+          gh release create "$tag" --title "$tag" \
+            --notes "QBone and UniBone appliance images. Base: $BASE_VERSION." 2>/dev/null || true
+          gh release upload "$tag" "$img" --clobber
 
       - uses: actions/upload-artifact@v7
         with:
-          name: qbone-dist-image
-          path: qbone-dist.img.xz
+          name: ${{ matrix.board }}-dist-image
+          path: ${{ matrix.board }}-dist.img.xz

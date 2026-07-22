@@ -1,11 +1,12 @@
 #!/bin/bash
-# build-image.sh - build the QBone distribution image from the rcn-ee base.
+# build-image.sh - build the distribution image from the rcn-ee base.
 #
-# Produces a bootable microSD image: the rcn-ee Debian base, customised into a
-# QBone appliance - the emulator installed, eth0 moved to the legacy Ethernet
-# driver, boot settings applied, the operator toolset added, nginx/cockpit
-# removed, and the sample operating systems and their boot configurations
-# placed under /var/lib/qbone.
+# Produces a bootable microSD image: the rcn-ee Debian base, customised into an
+# appliance - the emulator installed, eth0 moved to the legacy Ethernet driver,
+# boot settings applied, the operator toolset added, nginx/cockpit removed, and
+# the sample operating systems and their boot configurations placed under
+# /var/lib/<name>. NAME picks the board: qbone (QBUS, the default) or unibone
+# (UNIBUS); it sets the package installed, the hostname and the image name.
 #
 # The Linux-specific work (loop-mounting ext4, an armhf chroot, resizing) runs
 # in a privileged Docker container, because macOS can do none of it. Apple
@@ -13,30 +14,34 @@
 #
 # Inputs, under $DIST (default ./dist):
 #   base.img.xz          the rcn-ee base-v6.12 armhf image
-#   qbone_*_armhf.deb    the qbone package
+#   <name>_*_armhf.deb   the emulator package for this board
 #   images/              disk images to ship (*.dsk, *.rl02, ...)
 #   configs/             boot configurations (*.json) naming those images
 # and from the repository:
 #   02_bbb_config/01_cape/am335x-boneblack-qbone.dts
 #   packaging/debian/network/*
 #
-# Output: $OUT (default ./qbone-dist.img), ready to write to a card.
+# Output: $OUT (default ./<name>-dist.img), ready to write to a card.
 #
-# usage:  DIST=./dist OUT=./qbone-dist.img ./packaging/build-image.sh
+# usage:  DIST=./dist ./packaging/build-image.sh           # qbone image
+#         NAME=unibone DIST=./dist ./packaging/build-image.sh   # unibone image
 
 set -euo pipefail
 
+# board: names the package installed, the hostname and the image
+NAME=${NAME:-qbone}
+
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 DIST=${DIST:-$HERE/dist}
-OUT=${OUT:-$HERE/qbone-dist.img}
+OUT=${OUT:-$HERE/${NAME}-dist.img}
 # room to add beyond the base while building; the image is shrunk to fit after
 GROW=${GROW:-4G}
 # margin left in the root filesystem after the shrink
 MARGIN_MB=${MARGIN_MB:-400}
 
 ls "$DIST"/base.img.xz >/dev/null 2>&1 || { echo "missing $DIST/base.img.xz" >&2; exit 1; }
-ls "$DIST"/qbone_*_armhf.deb >/dev/null 2>&1 || { echo "missing $DIST/qbone_*_armhf.deb" >&2; exit 1; }
-[ "$(ls "$DIST"/qbone_*_armhf.deb | wc -l)" -eq 1 ] || { echo "expected exactly one qbone deb in $DIST" >&2; exit 1; }
+ls "$DIST"/${NAME}_*_armhf.deb >/dev/null 2>&1 || { echo "missing $DIST/${NAME}_*_armhf.deb" >&2; exit 1; }
+[ "$(ls "$DIST"/${NAME}_*_armhf.deb | wc -l)" -eq 1 ] || { echo "expected exactly one $NAME deb in $DIST" >&2; exit 1; }
 [ -d "$DIST/images" ] || { echo "missing $DIST/images" >&2; exit 1; }
 [ -d "$DIST/configs" ] || { echo "missing $DIST/configs" >&2; exit 1; }
 DTS=$HERE/02_bbb_config/01_cape/am335x-boneblack-qbone.dts
@@ -46,11 +51,11 @@ NET=$HERE/packaging/debian/network
 echo "== registering the armhf binfmt handler in the Docker VM =="
 docker run --privileged --rm tonistiigi/binfmt --install arm >/dev/null
 
-echo "== building the image in a privileged container (this takes a while) =="
+echo "== building the $NAME image in a privileged container (this takes a while) =="
 docker run --rm -i --privileged \
-    -e GROW="$GROW" -e MARGIN_MB="$MARGIN_MB" \
+    -e GROW="$GROW" -e MARGIN_MB="$MARGIN_MB" -e NAME="$NAME" \
     -v "$DIST":/dist \
-    -v "$DTS":/in/qbone.dts:ro \
+    -v "$DTS":/in/board.dts:ro \
     -v "$NET":/in/network:ro \
     debian:trixie bash -euo pipefail -s <<'CONTAINER'
 export DEBIAN_FRONTEND=noninteractive
@@ -83,7 +88,7 @@ resize2fs "${LO}p3" >/dev/null
 mkdir -p /mnt
 mount "${LO}p3" /mnt
 # /proc and /dev are enough for apt and the device-tree build; /sys is left out
-# so the target's qbone-setup logic never sees the container's eth0
+# so the target's setup logic never sees the container's eth0
 mount -t proc proc /mnt/proc
 mount --bind /dev /mnt/dev
 # resolv.conf is a symlink into /run on the base image; give the chroot a real
@@ -93,10 +98,10 @@ cp --remove-destination /etc/resolv.conf /mnt/etc/resolv.conf
 
 # stage the inputs inside the rootfs
 mkdir -p /mnt/tmp/in/images /mnt/tmp/in/configs
-cp /dist/qbone_*_armhf.deb /mnt/tmp/in/
+cp /dist/${NAME}_*_armhf.deb /mnt/tmp/in/
 cp /dist/images/* /mnt/tmp/in/images/
 cp /dist/configs/* /mnt/tmp/in/configs/
-cp /in/qbone.dts /mnt/tmp/in/qbone.dts
+cp /in/board.dts /mnt/tmp/in/board.dts
 
 echo "-- customising the rootfs (armhf chroot)"
 chroot /mnt /bin/bash -euo pipefail <<'CHROOT'
@@ -112,7 +117,7 @@ apt-get -qq update >/dev/null
 # the operator toolset the appliance is run and debugged with
 apt-get -qq install -y gdb tcpdump zsh tmux ckermit >/dev/null
 # the emulator package pulls in iproute2 and the device-tree build tools
-apt-get -qq install -y /tmp/in/qbone_*_armhf.deb >/dev/null
+apt-get -qq install -y /tmp/in/${NAME}_*_armhf.deb >/dev/null
 
 # nothing in the image uses the GPIO daemon
 apt-get -qq purge -y gpiod 2>/dev/null || true
@@ -129,13 +134,14 @@ KIMG=$(dpkg-query -W -f='${Package}\n' 'linux-image-*' 2>/dev/null | grep bone |
 # password logins (the base image's debian account) still work, for onboarding.
 passwd -d root
 install -d -m 755 /etc/ssh/sshd_config.d
-cat > /etc/ssh/sshd_config.d/10-qbone.conf <<'EOF'
+cat > /etc/ssh/sshd_config.d/10-${NAME}.conf <<'EOF'
 PermitRootLogin no
 PermitEmptyPasswords no
 EOF
-chmod 644 /etc/ssh/sshd_config.d/10-qbone.conf
+chmod 644 /etc/ssh/sshd_config.d/10-${NAME}.conf
 
-# boot settings the cape needs, the same ones qbone-setup writes
+# boot settings the cape needs, the same ones <name>-setup writes. QBone.dtbo
+# is the bus-agnostic cape overlay, shared by both boards.
 U=/boot/uEnv.txt
 set_uenv() {
     if grep -qE "^#?$1=" "$U"; then sed -i "s|^#\?$1=.*|$1=$2|" "$U"
@@ -153,27 +159,27 @@ KVER=$(basename "$(ls -d /boot/dtbs/*/ | head -1)")
 KMM=$(echo "$KVER" | cut -d. -f1-2)
 SRC=/opt/source/dtb-${KMM}.x
 BASE_DTB=am335x-boneblack-uboot.dtb
-cp /tmp/in/qbone.dts "$SRC/src/arm/ti/omap/am335x-boneblack-qbone.dts"
+cp /tmp/in/board.dts "$SRC/src/arm/ti/omap/am335x-boneblack-${NAME}.dts"
 ( cd "$SRC" && make ARCH=arm CPP=cpp DTC=dtc \
-    src/arm/ti/omap/am335x-boneblack-qbone.dtb >/dev/null 2>&1 )
-DTB="$SRC/src/arm/ti/omap/am335x-boneblack-qbone.dtb"
+    src/arm/ti/omap/am335x-boneblack-${NAME}.dtb >/dev/null 2>&1 )
+DTB="$SRC/src/arm/ti/omap/am335x-boneblack-${NAME}.dtb"
 [ -e "$DTB" ] || { echo "device tree build failed" >&2; exit 1; }
 cp "/boot/dtbs/$KVER/$BASE_DTB" "/boot/dtbs/$KVER/$BASE_DTB.stock"
 cp "$DTB" "/boot/dtbs/$KVER/$BASE_DTB"
 
 # the sample operating systems and their boot configurations
-install -d -m 755 /var/lib/qbone/images /var/lib/qbone/configs
-cp /tmp/in/images/* /var/lib/qbone/images/
-cp /tmp/in/configs/* /var/lib/qbone/configs/
+install -d -m 755 /var/lib/${NAME}/images /var/lib/${NAME}/configs
+cp /tmp/in/images/* /var/lib/${NAME}/images/
+cp /tmp/in/configs/* /var/lib/${NAME}/configs/
 
 rm -rf /tmp/in
 CHROOT
 
 echo "-- enabling the services (offline, from the host)"
-# qbone-setup.service runs qbone-setup --auto on first boot so the image
+# <name>-setup.service runs the setup --auto on first boot so the image
 # configures its network bridge with no login; the image enables it, a package
 # install leaves it disabled
-systemctl --root=/mnt enable qbone-network.service qbone.service qbone-setup.service qbone-leds.service qbone-resize.service >/dev/null 2>&1 || true
+systemctl --root=/mnt enable ${NAME}-network.service ${NAME}.service ${NAME}-setup.service ${NAME}-leds.service ${NAME}-resize.service >/dev/null 2>&1 || true
 # the USB gadget serial getty spins on a tty that is not reliably present and
 # wedges the console; the appliance is reached over the physical UART, the web
 # interface and ssh. Mask the GPIO daemon's unit too - nothing here uses it.
@@ -196,14 +202,14 @@ rm -f /mnt/etc/ssh/ssh_host_*
 # The base image processes several first-boot actions through bbbio-set-sysconf
 # and reboots for each: regenerating ssh host keys (ssh_regenerate) and growing
 # the root filesystem (growpart/growpart_done). sshd-keygen.service and
-# qbone-resize.service now do both without those reboots - and the base's
-# reboot lands while qbone is mid-startup, wedged in a PRU syscall, hanging the
-# reboot. Drop the flags so bbbio-set-sysconf has nothing to reboot for.
+# <name>-resize.service now do both without those reboots - and the base's
+# reboot lands while the emulator is mid-startup, wedged in a PRU syscall,
+# hanging the reboot. Drop the flags so bbbio-set-sysconf has nothing to do.
 rm -f /mnt/etc/bbb.io/ssh_regenerate \
       /mnt/etc/bbb.io/growpart /mnt/etc/bbb.io/growpart_done
-echo qbone > /mnt/etc/hostname
-sed -i 's/\bBeagleBone\b/qbone/g; s/127\.0\.1\.1.*/127.0.1.1\tqbone/' /mnt/etc/hosts 2>/dev/null || true
-rm -f /mnt/var/lib/qbone/settings.json
+echo "$NAME" > /mnt/etc/hostname
+sed -i "s/\\bBeagleBone\\b/$NAME/g; s/127\\.0\\.1\\.1.*/127.0.1.1\\t$NAME/" /mnt/etc/hosts 2>/dev/null || true
+rm -f /mnt/var/lib/${NAME}/settings.json
 find /mnt/var/log -type f -exec truncate -s0 {} + 2>/dev/null || true
 rm -rf /mnt/var/lib/apt/lists/* /mnt/var/cache/apt/archives/*.deb
 rm -f /mnt/root/.bash_history /mnt/home/*/.bash_history 2>/dev/null || true
@@ -231,9 +237,9 @@ echo ", ${NEW_SECTORS}" | sfdisk -q -N 3 /work.img >/dev/null
 END_SECTOR=$(( P3_START + NEW_SECTORS ))
 truncate -s $(( END_SECTOR * 512 )) /work.img
 
-cp /work.img /dist/qbone-dist.img
-echo "-- done: $(du -h /dist/qbone-dist.img | cut -f1)"
+cp /work.img /dist/${NAME}-dist.img
+echo "-- done: $(du -h /dist/${NAME}-dist.img | cut -f1)"
 CONTAINER
 
-mv "$DIST/qbone-dist.img" "$OUT"
+mv "$DIST/${NAME}-dist.img" "$OUT"
 echo "== image ready: $OUT ($(du -h "$OUT" | cut -f1)) =="

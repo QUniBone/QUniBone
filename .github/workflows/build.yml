@@ -57,7 +57,7 @@ jobs:
 
       - name: Check the package installs cleanly
         run: |
-          deb=$(ls qbone_*_armhf.deb)
+          deb=$(ls *_armhf.deb)
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb"
           # lintian-style sanity: the maintainer scripts must at least parse
@@ -66,5 +66,5 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: qbone-${{ matrix.platform }}
-          path: qbone_*_armhf.deb
+          name: package-${{ matrix.platform }}
+          path: '*_armhf.deb'

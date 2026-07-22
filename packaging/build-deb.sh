@@ -1,9 +1,11 @@
 #!/bin/bash
-# Build the qbone Debian package from an already cross-compiled binary.
+# Build the Debian package from an already cross-compiled binary. The QBUS build
+# ships as "qbone", the UNIBUS build as "unibone" - same packaging, one brand
+# rewritten to the other.
 #
 # Two programs are installed. "qbone-web" in the source tree becomes
-# /usr/bin/qbone, the service the unit runs: it serves the web interface and
-# has no menu. "demo" becomes /usr/bin/qbone-demo, the interactive tool for
+# /usr/bin/<name>, the service the unit runs: it serves the web interface and
+# has no menu. "demo" becomes /usr/bin/<name>-demo, the interactive tool for
 # bus latches, master/slave tests and the device exercisers. The renames
 # happen here so the tree stays mergeable with upstream.
 #
@@ -12,8 +14,8 @@
 # in the same container the cross build uses, since macOS has no dpkg.
 #
 # usage:
-#   ./packaging/build-deb.sh            package the QBUS build
-#   ./packaging/build-deb.sh -u         package the UNIBUS build
+#   ./packaging/build-deb.sh            package the QBUS build as "qbone"
+#   ./packaging/build-deb.sh -u         package the UNIBUS build as "unibone"
 
 set -e
 cd "$(dirname "$0")/.."
@@ -49,6 +51,28 @@ while getopts "u" opt; do
     esac
 done
 
+# Board identity. The lowercase brand names the package, its install paths and
+# its systemd units; the display brand is what the web interface shows. QBUS is
+# qbone/QBone, UNIBUS is unibone/UniBone.
+if [ "$SUFFIX" = _u ]; then
+    NAME=unibone; DISPLAY=UniBone
+else
+    NAME=qbone;   DISPLAY=QBone
+fi
+
+# Rewrite the qbone/QBone brand to this board's, while keeping the hardware
+# tokens both boards share through the bus-agnostic QBone cape overlay: the
+# qbone-ddr reserved-memory node, the QBone.dtbo overlay filename, and the
+# "qbone" UIO device name. For the qbone board every substitution is identity,
+# so its package is byte-for-byte what it was before this was parametrized.
+rebrand() {
+    sed -e "s/qbone/$NAME/g" \
+        -e "s/QBone/$DISPLAY/g" \
+        -e "s/${NAME}-ddr/qbone-ddr/g" \
+        -e "s/${DISPLAY}\\.dtbo/QBone.dtbo/g" \
+        -e "s/grep -qi ${NAME}/grep -qi qbone/g"
+}
+
 BINARY=10.03_app_demo/4_deploy$SUFFIX/qbone-web
 BINARY_DEMO=10.03_app_demo/4_deploy$SUFFIX/demo
 if [ ! -x $BINARY ] || [ ! -x $BINARY_DEMO ]; then
@@ -56,7 +80,7 @@ if [ ! -x $BINARY ] || [ ! -x $BINARY_DEMO ]; then
     exit 1
 fi
 
-VERSION=$(sed -n 's/^qbone (\([^)]*\)).*/\1/p' packaging/debian/changelog | head -1)
+VERSION=$(sed -n 's/^[a-z]* (\([^)]*\)).*/\1/p' packaging/debian/changelog | head -1)
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 # mktemp makes it private; the package root has to be world readable
@@ -66,53 +90,69 @@ install -d -m 755 $STAGE/DEBIAN \
     $STAGE/etc/modprobe.d \
     $STAGE/etc/modules-load.d \
     $STAGE/usr/bin \
-    $STAGE/usr/share/qbone/frontend/vendor \
-    $STAGE/usr/share/doc/qbone \
-    $STAGE/etc/qbone \
+    $STAGE/usr/share/$NAME/frontend/vendor \
+    $STAGE/usr/share/doc/$NAME \
+    $STAGE/etc/$NAME \
     $STAGE/lib/systemd/system \
     $STAGE/lib/firmware \
     $STAGE/usr/sbin \
-    $STAGE/usr/share/qbone/network \
-    $STAGE/var/lib/qbone/images \
-    $STAGE/var/lib/qbone/configs
+    $STAGE/usr/share/$NAME/network \
+    $STAGE/var/lib/$NAME/images \
+    $STAGE/var/lib/$NAME/configs
 
-install -m 755 $BINARY $STAGE/usr/bin/qbone
-install -m 755 $BINARY_DEMO $STAGE/usr/bin/qbone-demo
-install -m 644 10.05_web/3_frontend/index.html $STAGE/usr/share/qbone/frontend/
-install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/qbone/frontend/vendor/
-# favicons and the PWA manifest, served from the web root beside index.html
+install -m 755 $BINARY $STAGE/usr/bin/$NAME
+install -m 755 $BINARY_DEMO $STAGE/usr/bin/$NAME-demo
+# the web root: index.html and the manifest carry the display brand
+rebrand < 10.05_web/3_frontend/index.html > $STAGE/usr/share/$NAME/frontend/index.html
+rebrand < 10.05_web/3_frontend/site.webmanifest > $STAGE/usr/share/$NAME/frontend/site.webmanifest
+chmod 644 $STAGE/usr/share/$NAME/frontend/index.html \
+    $STAGE/usr/share/$NAME/frontend/site.webmanifest
+install -m 644 10.05_web/3_frontend/vendor/* $STAGE/usr/share/$NAME/frontend/vendor/
+# favicons served from the web root beside index.html (binary, copied as-is)
 install -m 644 10.05_web/3_frontend/favicon.ico 10.05_web/3_frontend/favicon.svg \
     10.05_web/3_frontend/favicon-16x16.png 10.05_web/3_frontend/favicon-32x32.png \
     10.05_web/3_frontend/favicon-48x48.png 10.05_web/3_frontend/apple-touch-icon.png \
     10.05_web/3_frontend/android-chrome-192x192.png \
     10.05_web/3_frontend/android-chrome-512x512.png \
-    10.05_web/3_frontend/site.webmanifest $STAGE/usr/share/qbone/frontend/
-install -m 644 packaging/debian/qbone.service $STAGE/lib/systemd/system/
-install -m 644 packaging/debian/network.conf $STAGE/etc/qbone/
-install -m 755 packaging/debian/qbone-network $STAGE/usr/sbin/
-install -m 755 packaging/debian/qbone-setup $STAGE/usr/sbin/
-install -m 755 packaging/debian/qbone-resize $STAGE/usr/sbin/
-install -m 644 packaging/debian/qbone-network.service $STAGE/lib/systemd/system/
-# runs qbone-setup --auto unattended; enabled on the distribution image, left
-# disabled on a package install where the operator drives qbone-setup by hand
-install -m 644 packaging/debian/qbone-setup.service $STAGE/lib/systemd/system/
+    $STAGE/usr/share/$NAME/frontend/
+# systemd units, helper scripts and configs: brand rewritten, renamed to $NAME
+rebrand < packaging/debian/qbone.service > $STAGE/lib/systemd/system/$NAME.service
+rebrand < packaging/debian/network.conf > $STAGE/etc/$NAME/network.conf
+rebrand < packaging/debian/qbone-network > $STAGE/usr/sbin/$NAME-network
+rebrand < packaging/debian/qbone-setup > $STAGE/usr/sbin/$NAME-setup
+rebrand < packaging/debian/qbone-resize > $STAGE/usr/sbin/$NAME-resize
+chmod 755 $STAGE/usr/sbin/$NAME-network $STAGE/usr/sbin/$NAME-setup $STAGE/usr/sbin/$NAME-resize
+rebrand < packaging/debian/qbone-network.service > $STAGE/lib/systemd/system/$NAME-network.service
+# runs <name>-setup --auto unattended; enabled on the distribution image, left
+# disabled on a package install where the operator drives the setup by hand
+rebrand < packaging/debian/qbone-setup.service > $STAGE/lib/systemd/system/$NAME-setup.service
 # status LEDs: a tiny standalone daemon, cross-compiled here. Enabled on the
-# image; shipped disabled in the package.
-arm-linux-gnueabihf-gcc -O2 -Wall -o $STAGE/usr/sbin/qbone-leds \
-    packaging/debian/qbone-leds.c
-install -m 644 packaging/debian/qbone-leds.service $STAGE/lib/systemd/system/
+# image; shipped disabled in the package. Rebrand its unit-name/path literals
+# before compiling, since they are baked into the binary.
+LEDS_C=$(mktemp --suffix=.c)
+rebrand < packaging/debian/qbone-leds.c > "$LEDS_C"
+arm-linux-gnueabihf-gcc -O2 -Wall -o $STAGE/usr/sbin/$NAME-leds "$LEDS_C"
+rm -f "$LEDS_C"
+rebrand < packaging/debian/qbone-leds.service > $STAGE/lib/systemd/system/$NAME-leds.service
 # grows the root filesystem to fill the card on first boot; enabled on the image
-install -m 644 packaging/debian/qbone-resize.service $STAGE/lib/systemd/system/
-install -m 644 packaging/debian/README.Debian $STAGE/usr/share/doc/qbone/
-# qbone-setup builds this into the loaded DTB so eth0 is a plain, bridgeable NIC
-install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts $STAGE/usr/share/qbone/
-# the bridge that carries the emulated machine, installed by qbone-setup
-install -m 644 packaging/debian/network/br0.netdev packaging/debian/network/br0.network \
-    packaging/debian/network/eth0.network packaging/debian/network/veth-br.network \
-    packaging/debian/network/veth-pdp.network $STAGE/usr/share/qbone/network/
+rebrand < packaging/debian/qbone-resize.service > $STAGE/lib/systemd/system/$NAME-resize.service
+rebrand < packaging/debian/README.Debian > $STAGE/usr/share/doc/$NAME/README.Debian
+chmod 644 $STAGE/lib/systemd/system/$NAME*.service $STAGE/etc/$NAME/network.conf \
+    $STAGE/usr/share/doc/$NAME/README.Debian
+# <name>-setup builds this into the loaded DTB so eth0 is a plain, bridgeable
+# NIC. The DTS content is the same eth0 fix for both boards; only its name
+# tracks the brand.
+install -m 644 02_bbb_config/01_cape/am335x-boneblack-qbone.dts \
+    $STAGE/usr/share/$NAME/am335x-boneblack-$NAME.dts
+# the bridge that carries the emulated machine, installed by <name>-setup
+for f in br0.netdev br0.network eth0.network veth-br.network veth-pdp.network; do
+    rebrand < packaging/debian/network/$f > $STAGE/usr/share/$NAME/network/$f
+    chmod 644 $STAGE/usr/share/$NAME/network/$f
+done
 
 # Both cape overlays: capemgr loads UniBone-00B0.dtbo from the cape's EEPROM
-# up to 4.19, and U-Boot applies QBone.dtbo by name after it.
+# up to 4.19, and U-Boot applies QBone.dtbo by name after it. Both boards use
+# the same bus-agnostic overlay, so these names do not track the brand.
 install -m 644 02_bbb_config/01_cape/UniBone-00B0.dtbo $STAGE/lib/firmware/
 dtc -@ -I dts -O dtb -o $STAGE/lib/firmware/QBone.dtbo \
     02_bbb_config/01_cape/QBone.dtso 2>&1 \
@@ -122,36 +162,37 @@ chmod 644 $STAGE/lib/firmware/QBone.dtbo
 
 # uio_pdrv_genirq matches no compatible of its own; the one it looks for is a
 # module parameter, so the overlay's node binds to nothing until it is set.
-install -m 644 packaging/debian/modprobe-qbone.conf $STAGE/etc/modprobe.d/qbone.conf
-install -m 644 packaging/debian/modules-load-qbone.conf $STAGE/etc/modules-load.d/qbone.conf
-gzip -9 -n -c packaging/debian/changelog > $STAGE/usr/share/doc/qbone/changelog.Debian.gz
-chmod 644 $STAGE/usr/share/doc/qbone/changelog.Debian.gz
+rebrand < packaging/debian/modprobe-qbone.conf > $STAGE/etc/modprobe.d/$NAME.conf
+rebrand < packaging/debian/modules-load-qbone.conf > $STAGE/etc/modules-load.d/$NAME.conf
+chmod 644 $STAGE/etc/modprobe.d/$NAME.conf $STAGE/etc/modules-load.d/$NAME.conf
+rebrand < packaging/debian/changelog | gzip -9 -n -c > $STAGE/usr/share/doc/$NAME/changelog.Debian.gz
+chmod 644 $STAGE/usr/share/doc/$NAME/changelog.Debian.gz
 
 # binary control file: the source stanza's fields, plus the installed size
 INSTALLED_KB=$(du -sk $STAGE | cut -f1)
 {
-    echo "Package: qbone"
+    echo "Package: $NAME"
     echo "Version: $VERSION"
     echo "Section: misc"
     echo "Priority: optional"
     echo "Architecture: armhf"
     # The emulator itself is static and needs nothing. iproute2 is for the
-    # ip(8) calls in qbone-network and qbone-setup; device-tree-compiler, cpp
-    # and make let qbone-setup build the legacy-Ethernet device tree. The
+    # ip(8) calls in <name>-network and <name>-setup; device-tree-compiler, cpp
+    # and make let <name>-setup build the legacy-Ethernet device tree. The
     # operator toolset and the nginx removal belong to the image preparation,
     # not here. Spelled out rather than taken from packaging/debian/control,
     # whose ${misc:Depends} is a debhelper substitution this build does not do.
     echo "Depends: iproute2, device-tree-compiler, cpp, make"
     echo "Maintainer: Hans Huebner <hans.huebner@gmail.com>"
     echo "Installed-Size: $INSTALLED_KB"
-    sed -n '/^Description:/,$p' packaging/debian/control
+    sed -n '/^Description:/,$p' packaging/debian/control | rebrand
 } > $STAGE/DEBIAN/control
 
 # files under /etc, which dpkg must not overwrite once they have been edited
 {
-    echo "/etc/qbone/network.conf"
-    echo "/etc/modprobe.d/qbone.conf"
-    echo "/etc/modules-load.d/qbone.conf"
+    echo "/etc/$NAME/network.conf"
+    echo "/etc/modprobe.d/$NAME.conf"
+    echo "/etc/modules-load.d/$NAME.conf"
 } > $STAGE/DEBIAN/conffiles
 
 cat > $STAGE/DEBIAN/preinst <<'PREINST'
@@ -213,6 +254,13 @@ if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
 fi
 POSTRM
+# the maintainer scripts are written with the qbone brand, then rewritten in
+# place to this board's, so $NAME does not have to be threaded through their
+# runtime-shell variables ($1, $2, $@)
+for s in preinst postinst prerm postrm; do
+    rebrand < "$STAGE/DEBIAN/$s" > "$STAGE/DEBIAN/$s.rebranded"
+    mv "$STAGE/DEBIAN/$s.rebranded" "$STAGE/DEBIAN/$s"
+done
 chmod 755 $STAGE/DEBIAN/preinst $STAGE/DEBIAN/postinst $STAGE/DEBIAN/prerm $STAGE/DEBIAN/postrm
 
 # md5sums over everything outside DEBIAN
@@ -221,7 +269,7 @@ chmod 755 $STAGE/DEBIAN/preinst $STAGE/DEBIAN/postinst $STAGE/DEBIAN/prerm $STAG
 chmod 644 $STAGE/DEBIAN/md5sums
 
 # xz keeps the archive readable by the dpkg on Debian 8, which predates zstd
-OUT=qbone_${VERSION}_armhf.deb
+OUT=${NAME}_${VERSION}_armhf.deb
 dpkg-deb -Zxz --build --root-owner-group "$STAGE" "$OUT"
 echo
 dpkg-deb --info "$OUT"
