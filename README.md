@@ -43,13 +43,13 @@ reports are welcome.
 - **Web interface** — browser console (xterm.js) with configuration, panel view,
   and log pages, served over HTTP with admin authentication.
 - **DELQA Ethernet emulation** — QBUS Ethernet controller bridged onto the host
-  LAN, with a station address derived from the board's own MAC.
+  LAN, with a station address derived from the bone's own MAC.
 - **DEUNA Ethernet emulation** — the UNIBUS counterpart. Untested; see Status.
 - **Debian 13 support** — runs on current Debian, loading the PRU firmware
   through `remoteproc`.
 - **Distributable SD-card image** — a `.deb` package and image builder that
   self-configure on first boot: SSH host keys, the filesystem grown to fill the
-  card, and per-board personalization.
+  card, and per-bone personalization.
 - **Status LEDs** — emulator state on the BeagleBone user LEDs.
 - **2.11BSD QBONE kernel configuration** for the emulated machine.
 
@@ -61,14 +61,14 @@ boot.
 
 ### 1. Get the image
 
-Every release bundles both packages and both board images. These links always
-download the newest release's image:
+Download the image for your bus. These links always give you the newest
+release:
 
-- **[qbone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/qbone-dist.img.xz)** — QBUS board
-- **[unibone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/unibone-dist.img.xz)** — UNIBUS board (untested; see Status)
+- **[qbone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/qbone-dist.img.xz)** — QBUS
+- **[unibone-dist.img.xz](https://github.com/QUniBone/QUniBone/releases/latest/download/unibone-dist.img.xz)** — UNIBUS (untested; see Status)
 
-The [latest release page](https://github.com/QUniBone/QUniBone/releases/latest)
-has the release notes, the packages, and the other board's image.
+Release notes are on the [latest release
+page](https://github.com/QUniBone/QUniBone/releases/latest).
 
 ### 2. Write it to a microSD card
 
@@ -85,7 +85,7 @@ the `.xz` directly if you would rather not use `dd`.
 
 Fit the cape, insert the card, apply power. The image is built to run from the
 microSD; the cape occupies the eMMC data lines, so the eMMC is disabled by the
-overlay and unusable while the cape is fitted. If the board comes up on
+overlay and unusable while the cape is fitted. If the bone comes up on
 something other than the card, hold the S2 boot button while applying power to
 force SD boot.
 
@@ -97,8 +97,17 @@ driver, then reboots; the second finds everything in place and starts the
 emulator. Do not pull power in between — watch the four user LEDs next to the
 Ethernet jack instead.
 
-The three LEDs `usr0`–`usr2` show how far the board has got. A growing run of
-LEDs blinking together at half-second intervals means it is still working:
+For the first few seconds after power-on the LEDs mean nothing in particular:
+the bootloader and then the kernel drive them with their own defaults, so you
+get brief flashes while the bootloader runs, then a double-beat heartbeat on
+`usr0` with the others flickering on card and CPU activity. The patterns below
+start once userspace is far enough along to take the LEDs over, and the whole
+sequence — bootloader flashes, kernel defaults, then the indicators — runs a
+second time after the first-boot reboot.
+
+From then on, the three LEDs `usr0`–`usr2` show how far the bone has got. A
+growing run of LEDs blinking together at half-second intervals means it is still
+working:
 
 | LEDs | Blinking | Meaning |
 |---|---|---|
@@ -113,10 +122,10 @@ not finish, and the serial console below is how to find out why.
 
 `usr3` is SD-card activity, relocated there because `usr1` is now an indicator.
 
-### 5. Find the board
+### 5. Find its network address
 
-The board takes a DHCP address on `br0`, the bridge carrying both the BeagleBone
-and the emulated machine. Its hostname is `qbone` (or `unibone`). In order of
+The bone takes a DHCP address on `br0`, the bridge carrying both the bone's own
+networking and the emulated machine. Its hostname is `qbone` (or `unibone`). In order of
 convenience:
 
 1. **`http://qbone.local/`** — the image runs an mDNS responder, so the name
@@ -125,40 +134,40 @@ convenience:
 2. **A service browser** — the web interface advertises itself over DNS-SD as
    *\<hostname\> (QBone ddeeff)*, so it appears in Safari's Bonjour bookmarks, in
    `avahi-browse -rt _http._tcp`, and in the network view of most file managers.
-3. **Plug a USB cable into the board** — it appears as a network interface with
-   the board at a fixed **192.168.7.2**, handing your machine an address on the
+3. **Plug a USB cable into the bone** — it appears as a network interface with
+   the bone at a fixed **192.168.7.2**, handing your machine an address on the
    same subnet. No LAN, no DHCP server, nothing to discover:
    `http://192.168.7.2/`.
 4. **Your router's DHCP lease table** — look for the hostname. The bridge pins
-   the board's uplink MAC, so the lease is stable across reboots.
+   the bone's uplink MAC, so the lease is stable across reboots.
 5. **The serial console** — a 3.3 V USB-serial adapter on the J1 header,
    115200 8N1. The address is printed above the login prompt, so you do not
-   need to log in. This is also the console of last resort if the board never
+   need to log in. This is also the console of last resort if the bone never
    reaches the network: the USB gadget *serial* getty is masked in the image
    because it wedges the boot, so USB serial is not a way in — only USB
    networking is.
 
-The address is also printed on the console and into the journal once the board
+The address is also printed on the console and into the journal once the bone
 has one — `journalctl -u '*-announce'`, or re-run `sudo bone-announce` to print
 it again.
 
 Then open `http://<address>/`. The web interface binds port 80 and asks you to
 set an admin password on first use.
 
-### More than one board on the network
+### More than one bone on the network
 
-Addresses never collide: each board's DHCP lease is keyed to its own uplink MAC,
+Addresses never collide: each bone's DHCP lease is keyed to its own uplink MAC,
 and each emulated Ethernet controller derives its station address from that MAC
 as well.
 
-Names would, so each board carries an identifier taken from its uplink MAC and
-advertises itself as **`qbone (QBone ddeeff)`**. Two boards are told apart in a
-service browser out of the box, and the identifier stays with a board however it
+Names would, so each bone carries an identifier taken from its uplink MAC and
+advertises itself as **`qbone (QBone ddeeff)`**. Two bones are told apart in a
+service browser out of the box, and the identifier stays with a bone however it
 is named.
 
-The hostname is still shared, so a second board finds `qbone` taken and mDNS
+The hostname is still shared, so a second bone finds `qbone` taken and mDNS
 renames it `qbone-2.local`, a third `qbone-3.local`. They stay reachable, but
-which board gets which suffix follows boot order and can change. Give each board
+which bone gets which suffix follows boot order and can change. Give each bone
 its own name instead:
 
     sudo bone-rename pdp11-front
@@ -166,29 +175,29 @@ its own name instead:
 The name then follows everywhere by itself: `pdp11-front.local`, the DNS-SD
 entry, the DHCP lease in your router's table, and the login banner. Run it with
 no argument to see the current name. Nothing in the emulator depends on the
-hostname — the board name in the emulator binary, its unit and the package is
-the board type, not the machine's name, and is unaffected.
+hostname — the name in the emulator binary, its unit and the package is the bus
+it serves, not the machine's name, and is unaffected.
 
 ### Command names
 
 Only the emulator itself is built for a particular bus. Everything around it —
 the setup, network, rename, resize, announce and LED tools, their units, and the
 files under `/etc/bone`, `/var/lib/bone` and `/usr/share/bone` — manages a
-BeagleBone carrying a cape and is the same on either board, so all of it is
-named `bone`. The board's name appears in three places: the emulator binary
+BeagleBone carrying a cape and is the same on either bone, so all of it is
+named `bone`. The bus-specific name appears in three places: the emulator binary
 (`/usr/bin/qbone` or `/usr/bin/unibone`), the unit that runs it, and the package
 you install.
 
 ## Updating
 
-The card image ships with the package repository preconfigured, so a board
+The card image ships with the package repository preconfigured, so a bone
 keeps itself current from later releases:
 
     sudo apt update && sudo apt upgrade
 
 Every release also attaches the packages themselves —
 `qbone_<version>_armhf.deb` and `unibone_<version>_armhf.deb` — beside the
-images, for a board built another way.
+images, for a bone built another way.
 
 ## Building from source
 
@@ -197,7 +206,7 @@ Cross-build with `crossbuild.sh` (Docker, no toolchain to install):
     ./crossbuild.sh        # QBUS
     ./crossbuild.sh -u     # UNIBUS
 
-For deploying to a board and building distributable images, see
+For deploying to a bone and building distributable images, see
 [`DISTRIBUTION.md`](DISTRIBUTION.md) and
 [`debian-installation.md`](debian-installation.md).
 
