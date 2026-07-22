@@ -172,13 +172,15 @@ INSTALLED_KB=$(du -sk $STAGE | cut -f1)
     echo "Section: misc"
     echo "Priority: optional"
     echo "Architecture: armhf"
-    # The emulator itself is static and needs nothing. iproute2 is for the
-    # ip(8) calls in <name>-network and <name>-setup; device-tree-compiler, cpp
-    # and make let <name>-setup build the legacy-Ethernet device tree. The
+    # libc6, libstdc++6 and libgcc-s1 are what the emulator links against -
+    # the NEEDED entries of the binary, no more. iproute2 is for the ip(8)
+    # calls in <name>-network and <name>-setup; device-tree-compiler, cpp and
+    # make let <name>-setup build the legacy-Ethernet device tree. The
     # operator toolset and the nginx removal belong to the image preparation,
     # not here. Spelled out rather than taken from packaging/debian/control,
-    # whose ${misc:Depends} is a debhelper substitution this build does not do.
-    echo "Depends: iproute2, device-tree-compiler, cpp, make"
+    # whose ${misc:Depends} is a debhelper substitution this build does not do,
+    # and which has no ${shlibs:Depends} to compute the libraries either.
+    echo "Depends: libc6, libstdc++6, libgcc-s1, iproute2, device-tree-compiler, cpp, make"
     # the two boards ship the same cape overlay and firmware files, and a BBB
     # carries one cape, so they are mutually exclusive on a machine
     echo "Conflicts: $OTHER"

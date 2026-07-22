@@ -6,7 +6,8 @@ Standards-Version: 3.9.6
 
 Package: qbone
 Architecture: armhf
-Depends: ${misc:Depends}, iproute2, device-tree-compiler, cpp, make
+Depends: ${misc:Depends}, libc6, libstdc++6, libgcc-s1,
+ iproute2, device-tree-compiler, cpp, make
 Description: PDP-11 Qbus device emulator for the QBone cape
  Emulates Qbus mass storage, serial and Ethernet controllers for a physical
  PDP-11, on a BeagleBone Black carrying a QBone cape. The PRU firmware that

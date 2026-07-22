@@ -27,12 +27,20 @@ PRUSS_INCLUDE_DIR = $(PRU_PACKAGE_ROOT)/include
 # ARM LIBRARIES
 PRUSS_DRV_LIB = $(PRU_PACKAGE_ROOT)/bin-bbb/libprussdrv.a
 
-# -static: do not use shared libs, include all code into the binary
-# (big binary, but BBB needs no shared libs of certain versions installed)
-# Example: demo binary goes from 594K to 12.3MB !
+# Linked against the shared libraries of the distribution the appliance image
+# carries, which the package names in its Depends. glibc resolves host names
+# and users through name service modules it loads with dlopen(), and a static
+# binary loads the ones belonging to whatever glibc the board runs rather than
+# the one it was built against: on a BeagleBone running glibc 2.41, a binary
+# built on 2.36 faulted with SIGFPE inside getaddrinfo().
+#
+# -no-pie: the prebuilt libprussdrv.a holds no position-independent code, and
+# a toolchain defaulting to PIE rejects its relocations ("can not be used when
+# making a shared object; recompile with -fPIC").
+#
 # EXTRA_LIBS: additional libraries some toolchains need
 # (e.g. -ltirpc where Sun RPC is no longer part of glibc)
-LDFLAGS+= -static -lstdc++ -lpthread $(PRUSS_DRV_LIB) $(EXTRA_LIBS)
+LDFLAGS+= -no-pie -lstdc++ -lpthread $(PRUSS_DRV_LIB) $(EXTRA_LIBS)
 
 # compiler flags and libraries
 ifeq ($(MAKE_CONFIGURATION),RELEASE)

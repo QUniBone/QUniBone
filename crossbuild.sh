@@ -56,14 +56,21 @@ while getopts "udcp" opt; do
     esac
 done
 
-# builder image: Debian with the armhf cross toolchain
-if ! docker image inspect $IMAGE >/dev/null 2>&1; then
-    echo "Building $IMAGE docker image ..."
-    docker build -t $IMAGE - <<'EOF'
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# builder image: Debian with the armhf cross toolchain.
+#
+# The tag carries a hash of the recipe, so editing anything below builds a new
+# image instead of reusing one that no longer matches what it says.
+CROSSBUILD_RECIPE=$(cat <<'EOF'
+# Trixie, the distribution the appliance image carries: the emulator links
+# against its shared libraries, so builder and board agree on their versions.
+FROM debian:trixie-slim
+# armhf as a foreign architecture: the target's libraries are linked into the
+# emulator, not run on the builder
+RUN dpkg --add-architecture armhf && apt-get update \
+    && apt-get install -y --no-install-recommends \
         gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf make file \
         curl ca-certificates bzip2 \
+        libx11-dev:armhf libxcb1-dev:armhf libxau-dev:armhf libxdmcp-dev:armhf \
     && rm -rf /var/lib/apt/lists/*
 # Sun RPC for the blinkenlight API client: modern glibc no longer bundles it;
 # libtirpc replaces it, built without GSSAPI so it links statically
@@ -74,6 +81,12 @@ RUN curl -sL https://downloads.sourceforge.net/libtirpc/libtirpc-1.3.4.tar.bz2 |
     && make -j"$(nproc)" && make install \
     && rm -rf /tmp/libtirpc-1.3.4
 EOF
+)
+IMAGE=$IMAGE:$(printf '%s' "$CROSSBUILD_RECIPE" | shasum | cut -c1-12)
+
+if ! docker image inspect $IMAGE >/dev/null 2>&1; then
+    echo "Building $IMAGE docker image ..."
+    printf '%s\n' "$CROSSBUILD_RECIPE" | docker build -t $IMAGE -
 fi
 
 # builder image: the TI PRU code generation tools. clpru is an x86-64 binary
