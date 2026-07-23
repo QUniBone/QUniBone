@@ -17,6 +17,7 @@
    holds for the spans that follow.
 */
 
+#include <cstdint>
 #include <mutex>
 #include <set>
 #include <string>
@@ -30,6 +31,18 @@ static std::set<struct mg_connection *> clients;
 // Clients owed a full frame: a fresh connection, or everyone after a resize.
 static std::set<struct mg_connection *> need_full;
 static unsigned last_width = 0, last_height = 0;
+
+// Keyboard and pointer from the browsers, drained by the device each pass.
+static std::mutex input_mutex;
+static std::vector<webvcb01_input_t> input_queue;
+
+size_t webvcb01_poll_input(std::vector<webvcb01_input_t> &out) {
+	std::lock_guard<std::mutex> lock(input_mutex);
+	size_t n = input_queue.size();
+	out.insert(out.end(), input_queue.begin(), input_queue.end());
+	input_queue.clear();
+	return n;
+}
 
 bool webvcb01_watching(void) {
 	std::lock_guard<std::mutex> lock(clients_mutex);
@@ -104,10 +117,30 @@ static void ws_ready_handler(struct mg_connection *conn, void *) {
 	need_full.insert(conn); // owed a full frame on the next pass
 }
 
-static int ws_data_handler(struct mg_connection *, int opcode, char *, size_t, void *) {
-	// A display only: nothing from the client but the close.
+static int ws_data_handler(struct mg_connection *, int opcode, char *data, size_t len,
+		void *) {
 	if ((opcode & 0x0f) == MG_WEBSOCKET_OPCODE_CONNECTION_CLOSE)
 		return 0;
+	// Keyboard and pointer frames from the browser (see the wire format below).
+	const unsigned char *b = (const unsigned char *) data;
+	webvcb01_input_t e {};
+	if (len == 6 && b[0] == 0x10) {                 // key    0x10 down keysym:u32
+		e.kind = webvcb01_input_t::KEY;
+		e.down = b[1] != 0;
+		e.keysym = ((unsigned) b[2] << 24) | ((unsigned) b[3] << 16)
+				| ((unsigned) b[4] << 8) | b[5];
+	} else if (len == 5 && b[0] == 0x11) {          // motion 0x11 dx:i16 dy:i16
+		e.kind = webvcb01_input_t::MOTION;
+		e.dx = (int16_t) ((b[1] << 8) | b[2]);
+		e.dy = (int16_t) ((b[3] << 8) | b[4]);
+	} else if (len == 3 && b[0] == 0x12) {          // button 0x12 n down
+		e.kind = webvcb01_input_t::BUTTON;
+		e.button = b[1];
+		e.down = b[2] != 0;
+	} else
+		return 1;
+	std::lock_guard<std::mutex> lock(input_mutex);
+	input_queue.push_back(e);
 	return 1;
 }
 

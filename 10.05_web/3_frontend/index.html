@@ -578,13 +578,15 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 
 /* ============================ device widgets ============================ */
 /* the column is wide enough for a four-cap switch plate in one row */
-.widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
 /* a panel whose bezel needs the room takes two columns */
 .rlpanel.span2 { grid-column: span 2; }
 /* the VCB01 shows its framebuffer; give it the room and keep pixels crisp */
 .vcb01-widget { grid-column: span 2; }
 .vcb01-screen { margin-top: 8px; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
-.vcb01-screen canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; }
+.vcb01-screen canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; cursor: crosshair; outline: none; }
+.vcb01-screen canvas:focus { box-shadow: inset 0 0 0 2px var(--phosphor); }
+.vcb01-hint { font-size: var(--fs-1); color: var(--muted); margin-top: 4px; }
 
 /* removable-media tags */
 .w-tag { font-size: var(--fs-0); padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
@@ -2050,14 +2052,63 @@ function vcb01Connect() {
   ws.onclose = () => { VCB01D.ws = null; };
   VCB01D.ws = ws;
 }
+/* keyboard: browser event.code -> the X keysym the LK201 model understands */
+const VCB01_KEYSYM = (() => {
+  const m = {};
+  for (let c = 65; c <= 90; c++) m['Key' + String.fromCharCode(c)] = c + 32;   /* a-z */
+  for (let n = 0; n <= 9; n++) m['Digit' + n] = 0x30 + n;
+  Object.assign(m, {
+    Space: 0x20, Enter: 0xFF0D, Tab: 0xFF09, Backspace: 0xFF08, Delete: 0xFFFF,
+    Semicolon: 0x3B, Equal: 0x3D, Comma: 0x2C, Minus: 0x2D, Period: 0x2E, Slash: 0x2F,
+    Quote: 0x27, BracketLeft: 0x5B, BracketRight: 0x5D, Backslash: 0x5C, Backquote: 0x60,
+    ShiftLeft: 0xFFE1, ShiftRight: 0xFFE2, ControlLeft: 0xFFE3, ControlRight: 0xFFE4,
+    CapsLock: 0xFFE5, ArrowLeft: 0xFF51, ArrowUp: 0xFF52, ArrowRight: 0xFF53, ArrowDown: 0xFF54,
+  });
+  return m;
+})();
+function vcb01Send(bytes) {
+  const ws = VCB01D.ws;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(new Uint8Array(bytes));
+}
+let vcb01KbdWired = false;
+function vcb01WireKeyboard() {
+  if (vcb01KbdWired) return; vcb01KbdWired = true;
+  const key = (e, down) => {                       /* only while the canvas has focus */
+    const cv = document.getElementById('vcb01-canvas');
+    if (!cv || document.activeElement !== cv) return;
+    const ks = VCB01_KEYSYM[e.code]; if (!ks) return;
+    e.preventDefault();
+    vcb01Send([0x10, down ? 1 : 0, (ks >>> 24) & 255, (ks >> 16) & 255, (ks >> 8) & 255, ks & 255]);
+  };
+  document.addEventListener('keydown', e => key(e, true));
+  document.addEventListener('keyup', e => key(e, false));
+}
+function vcb01WireMouse(cv) {
+  if (cv.dataset.wired) return; cv.dataset.wired = '1'; /* the canvas is fresh each render */
+  cv.addEventListener('mousemove', e => {            /* relative deltas, for the VSXXX */
+    let dx = e.movementX | 0, dy = e.movementY | 0;
+    if (!dx && !dy) return;
+    dx = Math.max(-32768, Math.min(32767, dx)); dy = Math.max(-32768, Math.min(32767, dy));
+    vcb01Send([0x11, (dx >> 8) & 255, dx & 255, (dy >> 8) & 255, dy & 255]);
+  });
+  const btn = e => {
+    const b = { 0: 1, 1: 2, 2: 3 }[e.button]; if (!b) return;
+    e.preventDefault(); vcb01Send([0x12, b, e.type === 'mousedown' ? 1 : 0]);
+  };
+  cv.addEventListener('mousedown', e => { cv.focus(); btn(e); });
+  cv.addEventListener('mouseup', btn);
+  cv.addEventListener('contextmenu', e => e.preventDefault());   /* right button, not a menu */
+}
 function vcb01AfterRender() {
-  if (document.getElementById('vcb01-canvas')) { vcb01Connect(); vcb01Blit(); }
+  const cv = document.getElementById('vcb01-canvas');
+  if (cv) { vcb01Connect(); vcb01Blit(); vcb01WireKeyboard(); vcb01WireMouse(cv); }
   else if (VCB01D.ws) { VCB01D.ws.close(); VCB01D.ws = null; }
 }
 function vcb01Widget(d) {
   return '<div class="rlpanel vcb01-widget">' +
     '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
-    '<div class="vcb01-screen"><canvas id="vcb01-canvas"></canvas></div>' +
+    '<div class="vcb01-screen"><canvas id="vcb01-canvas" tabindex="0"></canvas></div>' +
+    '<div class="vcb01-hint">click to focus — keyboard &amp; mouse drive the board</div>' +
     '</div>';
 }
 

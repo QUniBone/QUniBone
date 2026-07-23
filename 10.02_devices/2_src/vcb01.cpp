@@ -645,6 +645,38 @@ void vcb01_c::pump_window_events(void)
     }
 }
 
+// pump_web_input(): keyboard and pointer sent from a browser reach the DUART
+// the same way the X window's events do. Buttons are held in the same fields,
+// so an X monitor and a browser drive one shared pointer.
+void vcb01_c::pump_web_input(void)
+{
+#ifdef WEBUI
+    std::vector<webvcb01_input_t> evs;
+    if (webvcb01_poll_input(evs) == 0)
+        return;
+    pthread_mutex_lock(&state_mutex);
+    for (const webvcb01_input_t &e : evs)
+        switch (e.kind) {
+        case webvcb01_input_t::KEY:
+            input.key_event(e.keysym, e.down);
+            break;
+        case webvcb01_input_t::MOTION:
+            input.pointer_event(e.dx, e.dy, btn_l, btn_m, btn_r);
+            break;
+        case webvcb01_input_t::BUTTON:
+            if (e.button == 1) btn_l = e.down;
+            if (e.button == 2) btn_m = e.down;
+            if (e.button == 3) btn_r = e.down;
+            input.pointer_event(0, 0, btn_l, btn_m, btn_r);
+            update_csr();       // buttons show in the CSR
+            break;
+        }
+    mirror_duart();
+    update_interrupt();
+    pthread_mutex_unlock(&state_mutex);
+#endif
+}
+
 void vcb01_c::worker(unsigned instance)
 {
     UNUSED(instance);
@@ -669,6 +701,7 @@ void vcb01_c::worker(unsigned instance)
             next_refresh_ms = now + 1000 / (refresh_rate.value ? refresh_rate.value : 30);
             if (window.is_open())
                 pump_window_events();
+            pump_web_input();
             bool watching = window.is_open();
 #ifdef WEBUI
             watching = watching || webvcb01_watching();

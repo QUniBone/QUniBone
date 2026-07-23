@@ -209,6 +209,7 @@ private:
     vcb01::state_t screen_state(void);
     void refresh_screen(void);
     void pump_window_events(void);
+    void pump_web_input(void);
 };
 
 #endif

@@ -29,4 +29,17 @@ bool webvcb01_watching(void);
 void webvcb01_publish(unsigned width, unsigned height, const unsigned char *pixels,
                       const std::vector<vcb01::span_t> &spans);
 
+// Keyboard and pointer sent from a browser. The device drains these each pass
+// and feeds them to its DUART, the same way the X window's events are fed.
+struct webvcb01_input_t {
+	enum kind_e { KEY, MOTION, BUTTON } kind;
+	unsigned keysym;    // KEY: an X keysym
+	int dx, dy;         // MOTION: relative movement
+	int button;         // BUTTON: 1 left, 2 middle, 3 right
+	bool down;          // KEY / BUTTON
+};
+
+// Move any queued browser input into `out` (appended); returns how many.
+size_t webvcb01_poll_input(std::vector<webvcb01_input_t> &out);
+
 #endif
