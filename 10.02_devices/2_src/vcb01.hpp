@@ -118,6 +118,7 @@ private:
     static const uint16_t CRTCP_US = 0x0080;    // update strobe [RO]
 
     // --- the 6845's own registers, reached through the pointer ---
+    static const unsigned CRTC_VDSP = 6;        // vertical displayed, char rows
     static const unsigned CRTC_MSCN = 9;        // maximum scan line
     static const unsigned CRTC_CSCS = 10;       // cursor scan start
     static const unsigned CRTC_CAH = 14;        // cursor address high
@@ -175,10 +176,15 @@ private:
     uint64_t next_vsync_ms;
     uint64_t next_refresh_ms;
 
+    // Height the CRTC last asked for, applied by the worker so all Xlib calls
+    // stay on one thread. 0 means "no change pending".
+    unsigned pending_height;
+
     pthread_mutex_t state_mutex;
 
     void reset_controller(void);
     void update_csr(void);
+    unsigned crtc_height(void) const;
     uint32_t bank_base(void) const;
     bool claim_video_memory(void);
     void release_video_memory(void);

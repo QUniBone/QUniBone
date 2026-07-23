@@ -255,6 +255,45 @@ bool x11display_c::open(const std::string &display, const std::string &title,
     return true;
 }
 
+void x11display_c::resize(unsigned width, unsigned height)
+{
+    if (display_ == nullptr || (width == width_ && height == height_))
+        return;
+
+    width_ = width;
+    height_ = height;
+
+    // Let the window manager hold it at the new fixed size.
+    XSizeHints *hints = XAllocSizeHints();
+    if (hints != nullptr) {
+        hints->flags = PMinSize | PMaxSize;
+        hints->min_width = hints->max_width = (int) width;
+        hints->min_height = hints->max_height = (int) height;
+        XSetWMNormalHints(impl_->dpy, impl_->win, hints);
+        XFree(hints);
+    }
+    XResizeWindow(impl_->dpy, impl_->win, width, height);
+
+    // A new backing image and buffer at the new size.
+    int screen = DefaultScreen(impl_->dpy);
+    Visual *visual = DefaultVisual(impl_->dpy, screen);
+    int depth = DefaultDepth(impl_->dpy, screen);
+    if (impl_->image != nullptr) {
+        impl_->image->data = nullptr;
+        XDestroyImage(impl_->image);
+        impl_->image = nullptr;
+    }
+    XImage *img = XCreateImage(impl_->dpy, visual, depth, ZPixmap, 0, nullptr,
+            width, height, 32, 0);
+    impl_->bytes_per_line = img->bytes_per_line;
+    impl_->bytes_per_pixel = (unsigned) (img->bits_per_pixel / 8);
+    impl_->buffer.assign((size_t) impl_->bytes_per_line * height, 0);
+    img->data = (char *) impl_->buffer.data();
+    impl_->image = img;
+
+    XFlush(impl_->dpy);
+}
+
 void x11display_c::close()
 {
     if (impl_ == nullptr || impl_->dpy == nullptr) {

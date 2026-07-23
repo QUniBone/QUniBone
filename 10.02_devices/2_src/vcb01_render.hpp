@@ -53,7 +53,14 @@ namespace vcb01 {
 
 // The screen the board drives.
 static const unsigned XSIZE = 1024;
-static const unsigned YSIZE = 864;
+
+// The scanline map has one entry per screen line, and the board never drives
+// more than this many. How many are actually displayed is the CRTC's to say -
+// vertical displayed times the scan lines per character row - so the height is
+// a runtime value, YMAX its ceiling and DEFAULT_HEIGHT what a board shows
+// before its CRTC is programmed (the VR260's 864, which DECwindows drives).
+static const unsigned YMAX = 1024;
+static const unsigned DEFAULT_HEIGHT = 864;
 
 // One buffer line is 1024 pixels, one bit each.
 static const unsigned LINE_BYTES = XSIZE / 8;           // 128
@@ -94,8 +101,13 @@ public:
     // repainted; empty when the picture is unchanged.
     const std::vector<span_t> &update(const uint8_t *bank, const state_t &st);
 
-    // One byte per pixel, 0 or 1, XSIZE * YSIZE, row major.
+    // One byte per pixel, 0 or 1, XSIZE * height(), row major.
     const uint8_t *pixels() const { return pixels_.data(); }
+
+    // How many screen lines are displayed. Set from the CRTC; changing it
+    // repaints in full on the next pass.
+    unsigned height() const { return height_; }
+    void set_height(unsigned h);
 
     // Repaint everything on the next pass, for a freshly mapped window.
     void invalidate_all();
@@ -116,6 +128,7 @@ private:
     std::vector<span_t> spans_;
 
     state_t prev_state_;
+    unsigned height_ = DEFAULT_HEIGHT;
     bool have_shadow_ = false;
 };
 

@@ -28,13 +28,26 @@ namespace vcb01 {
 
 renderer_c::renderer_c()
 {
-    pixels_.assign(XSIZE * YSIZE, 0);
+    // Buffers are sized to the ceiling; only height_ lines are ever touched.
+    pixels_.assign(XSIZE * YMAX, 0);
     staging_.assign(BANK_BYTES, 0);
     shadow_.assign(BANK_BYTES, 0);
-    map_.assign(YSIZE, 0);
+    map_.assign(YMAX, 0);
     cursor_.assign(CURSOR_SIZE * CURSOR_SIZE, 0);
-    dirty_.assign(YSIZE, 0);
+    dirty_.assign(YMAX, 0);
     spans_.reserve(64);
+}
+
+void renderer_c::set_height(unsigned h)
+{
+    if (h < 1)
+        h = 1;
+    if (h > YMAX)
+        h = YMAX;
+    if (h != height_) {
+        height_ = h;
+        have_shadow_ = false;   // the whole picture repaints at the new size
+    }
 }
 
 void renderer_c::invalidate_all()
@@ -44,7 +57,7 @@ void renderer_c::invalidate_all()
 
 void renderer_c::mark(unsigned screen_line)
 {
-    if (screen_line < YSIZE)
+    if (screen_line < height_)
         dirty_[screen_line] = 1;
 }
 
@@ -53,7 +66,7 @@ void renderer_c::mark(unsigned screen_line)
 void renderer_c::read_scanline_map(const uint8_t *bank, uint16_t *out) const
 {
     const uint8_t *map = bank + MAP_LW * 4;
-    for (unsigned line = 0; line < YSIZE; line++) {
+    for (unsigned line = 0; line < height_; line++) {
         // longword (line / 2), half (line & 1), little endian within the bank
         const uint8_t *p = map + (line / 2) * 4 + (line & 1) * 2;
         out[line] = (uint16_t) ((p[0] | (p[1] << 8)) & 0x7FF);
@@ -132,9 +145,9 @@ const std::vector<span_t> &renderer_c::update(const uint8_t *bank, const state_t
 
     // The map is read every pass: an entry that changed moves a whole screen
     // line to different pixels.
-    std::vector<uint16_t> new_map(YSIZE);
+    std::vector<uint16_t> new_map(YMAX);
     read_scanline_map(bank, new_map.data());
-    for (unsigned line = 0; line < YSIZE; line++)
+    for (unsigned line = 0; line < height_; line++)
         if (full || new_map[line] != map_[line]) {
             map_[line] = new_map[line];
             mark(line);
@@ -153,7 +166,7 @@ const std::vector<span_t> &renderer_c::update(const uint8_t *bank, const state_t
             }
         }
         if (any)
-            for (unsigned line = 0; line < YSIZE; line++)
+            for (unsigned line = 0; line < height_; line++)
                 if (map_[line] < BUFFER_LINES && changed[map_[line]])
                     mark(line);
     }
@@ -191,7 +204,7 @@ const std::vector<span_t> &renderer_c::update(const uint8_t *bank, const state_t
 
     // Repaint what was marked. Video disabled blanks the screen without
     // disturbing the shadow, so re-enabling it brings the picture back.
-    for (unsigned line = 0; line < YSIZE; line++) {
+    for (unsigned line = 0; line < height_; line++) {
         if (!dirty_[line])
             continue;
         if (!st.video_enable)
@@ -211,13 +224,13 @@ const std::vector<span_t> &renderer_c::update(const uint8_t *bank, const state_t
     // Coalesce into runs so the caller issues one put per run.
     spans_.clear();
     unsigned line = 0;
-    while (line < YSIZE) {
+    while (line < height_) {
         if (!dirty_[line]) {
             line++;
             continue;
         }
         unsigned first = line;
-        while (line < YSIZE && dirty_[line])
+        while (line < height_ && dirty_[line])
             line++;
         spans_.push_back(span_t { first, line - first });
     }

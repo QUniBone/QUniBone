@@ -38,7 +38,8 @@ vcb01_c::vcb01_c() :
         CSR_reg(nullptr), CURX_reg(nullptr), MPOS_reg(nullptr),
         CRTCP_reg(nullptr), CRTCD_reg(nullptr), ICDR_reg(nullptr), ICSR_reg(nullptr),
         csr(0), cursor_x(0), crtc_pointer(0),
-        window_failed(false), next_vsync_ms(0), next_refresh_ms(0)
+        window_failed(false), next_vsync_ms(0), next_refresh_ms(0),
+        pending_height(0)
 {
     set_workers_count(1);       // the refresh loop
 
@@ -120,6 +121,14 @@ vcb01_c::~vcb01_c()
 uint32_t vcb01_c::bank_base(void) const
 {
     return (uint32_t) bank.value << 18;
+}
+
+// crtc_height(): the displayed height the 6845 is programmed for - vertical
+// displayed character rows times the scan lines each row holds. Zero until the
+// host programs it, which the caller reads as "keep the default".
+unsigned vcb01_c::crtc_height(void) const
+{
+    return (unsigned) crtc[CRTC_VDSP] * (crtc[CRTC_MSCN] + 1u);
 }
 
 // reset_controller(): what INIT and power-up leave behind.
@@ -221,7 +230,7 @@ bool vcb01_c::on_param_changed(parameter_c *param)
 bool vcb01_c::on_before_install(void)
 {
     window_failed = false;
-    if (!window.open(display.value, "QBone VCB01", XSIZE, YSIZE)) {
+    if (!window.open(display.value, "QBone VCB01", XSIZE, renderer.height())) {
         ERROR("%s", window.error().c_str());
         return false;
     }
@@ -429,6 +438,13 @@ void vcb01_c::on_after_register_access(qunibusdevice_register_t *device_reg,
             crtc[crtc_pointer] = (uint8_t) (value & 0xFF);
         set_register_dati_value(CRTCD_reg,
                 crtc_pointer < CRTC_SIZE ? crtc[crtc_pointer] : 0, __func__);
+        // The vertical displayed count and the scan lines per row together set
+        // the screen height. The worker resizes the window, off this thread.
+        if (crtc_pointer == CRTC_VDSP || crtc_pointer == CRTC_MSCN) {
+            unsigned h = crtc_height();
+            if (h >= 64 && h <= vcb01::YMAX)
+                pending_height = h;
+        }
     } else if (device_reg == ICDR_reg) {
         write_intc_data((uint8_t) (value & 0xFF));
     } else if (device_reg == ICSR_reg) {
@@ -481,7 +497,17 @@ void vcb01_c::refresh_screen(void)
 
     pthread_mutex_lock(&state_mutex);
     state_t st = screen_state();
+    unsigned want_height = pending_height;
+    pending_height = 0;
     pthread_mutex_unlock(&state_mutex);
+
+    // A CRTC change asked for a different height: resize the window and the
+    // renderer together, here on the one thread that touches Xlib.
+    if (want_height != 0 && want_height != renderer.height()) {
+        renderer.set_height(want_height);
+        window.resize(XSIZE, want_height);
+        INFO("screen height %u lines", want_height);
+    }
 
     const std::vector<span_t> &spans = renderer.update(video, st);
     for (const span_t &s : spans)

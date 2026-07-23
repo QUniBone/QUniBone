@@ -65,6 +65,11 @@ public:
     void close();
     bool is_open() const { return display_ != nullptr; }
 
+    // Change the drawable area, e.g. when the CRTC sets a different height.
+    // A no-op if the size is unchanged. Xlib is single-threaded, so call this
+    // from the same thread that draws.
+    void resize(unsigned width, unsigned height);
+
     const std::string &error() const { return error_; }
     // The display name actually handed to Xlib, after resolution.
     const std::string &resolved_display() const { return resolved_; }

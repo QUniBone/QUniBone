@@ -104,7 +104,7 @@ static void set_cursor_pixel(uint8_t *bank, unsigned row, unsigned col, bool on)
 
 static void identity_map(uint8_t *bank)
 {
-    for (unsigned line = 0; line < YSIZE; line++)
+    for (unsigned line = 0; line < DEFAULT_HEIGHT; line++)
         set_map(bank, line, line);
 }
 
@@ -139,7 +139,7 @@ static void run_checks()
 
     // Point every screen line at buffer line 0, which the board does to show
     // one line down the whole screen.
-    for (unsigned line = 0; line < YSIZE; line++)
+    for (unsigned line = 0; line < DEFAULT_HEIGHT; line++)
         set_map(bank.data(), line, 0);
     r.update(bank.data(), st);
     px = r.pixels();
@@ -278,7 +278,7 @@ static void draw_test_card(uint8_t *bank)
     // Each buffer line carries its own number in binary along the left, a
     // moving diagonal, and a ruler, so a stride or bit-order mistake is
     // visible rather than merely wrong.
-    for (unsigned bl = 0; bl < YSIZE; bl++) {
+    for (unsigned bl = 0; bl < DEFAULT_HEIGHT; bl++) {
         for (unsigned bit = 0; bit < 12; bit++)
             if (bl & (1u << bit))
                 set_pixel(bank, bl, 4 + bit * 3, true);
@@ -329,7 +329,7 @@ static bool dump_bmp(const char *path, const uint8_t *pixels)
         return false;
 
     const unsigned row_bytes = (XSIZE * 3 + 3) & ~3u;
-    const unsigned pixel_bytes = row_bytes * YSIZE;
+    const unsigned pixel_bytes = row_bytes * DEFAULT_HEIGHT;
     const unsigned offset = 54;
 
     uint8_t header[54];
@@ -340,7 +340,7 @@ static bool dump_bmp(const char *path, const uint8_t *pixels)
     memcpy(header + 10, &offset, 4);
     unsigned dib = 40;
     memcpy(header + 14, &dib, 4);
-    int w = (int) XSIZE, h = -(int) YSIZE;       // negative height: top down
+    int w = (int) XSIZE, h = -(int) DEFAULT_HEIGHT;       // negative height: top down
     memcpy(header + 18, &w, 4);
     memcpy(header + 22, &h, 4);
     uint16_t planes = 1, bpp = 24;
@@ -350,7 +350,7 @@ static bool dump_bmp(const char *path, const uint8_t *pixels)
     fwrite(header, 1, sizeof(header), f);
 
     std::vector<uint8_t> row(row_bytes, 0);
-    for (unsigned y = 0; y < YSIZE; y++) {
+    for (unsigned y = 0; y < DEFAULT_HEIGHT; y++) {
         const uint8_t *src = pixels + (size_t) y * XSIZE;
         for (unsigned x = 0; x < XSIZE; x++) {
             uint8_t v = src[x] ? 0xFF : 0x00;
@@ -375,8 +375,8 @@ static void render_sample(const char *path)
 
     // Scroll by 100 lines through the map, so the picture proves the
     // indirection is being followed rather than the bitmap read straight.
-    for (unsigned line = 0; line < YSIZE; line++)
-        set_map(bank.data(), line, (line + 100) % YSIZE);
+    for (unsigned line = 0; line < DEFAULT_HEIGHT; line++)
+        set_map(bank.data(), line, (line + 100) % DEFAULT_HEIGHT);
 
     renderer_c r;
     state_t st;
@@ -549,7 +549,7 @@ static void animate(const std::string &display)
     renderer_c r;
     x11display_c win;
 
-    if (!win.open(display, "QBone VCB01", XSIZE, YSIZE)) {
+    if (!win.open(display, "QBone VCB01", XSIZE, DEFAULT_HEIGHT)) {
         printf("\ncannot open display: %s\n", win.error().c_str());
         return;
     }
@@ -579,14 +579,14 @@ static void animate(const std::string &display)
 
         // Scroll by rotating the scanline map, which is what the board does
         // instead of moving pixels.
-        for (unsigned line = 0; line < YSIZE; line++)
-            set_map(bank.data(), line, (line + frame) % YSIZE);
+        for (unsigned line = 0; line < DEFAULT_HEIGHT; line++)
+            set_map(bank.data(), line, (line + frame) % DEFAULT_HEIGHT);
 
         // The cursor walks a circle; its function flips every few seconds so
         // AND and OR both get looked at.
         double angle = frame * 0.05;
         st.cursor_x = (unsigned) (XSIZE / 2 + 300 * cos(angle));
-        st.cursor_y = (unsigned) (YSIZE / 2 + 300 * sin(angle));
+        st.cursor_y = (unsigned) (DEFAULT_HEIGHT / 2 + 300 * sin(angle));
         st.cursor_or = ((frame / 90) % 2) == 0;
 
         const std::vector<span_t> &spans = r.update(bank.data(), st);
