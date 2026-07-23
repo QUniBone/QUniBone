@@ -59,13 +59,19 @@ static void send_error(struct mg_connection *conn, int status, const std::string
 	send_json(conn, status, picojson::value(err));
 }
 
-// read and parse a JSON object request body
+// read and parse a JSON object request body, of any size - a bulk memory write
+// carries thousands of words, far past one read buffer
 static bool read_json_body(struct mg_connection *conn, picojson::value *out) {
-	char body[4096];
-	int body_len = mg_read(conn, body, sizeof(body) - 1);
-	if (body_len <= 0)
+	std::string body;
+	char chunk[8192];
+	int n;
+	while ((n = mg_read(conn, chunk, sizeof(chunk))) > 0) {
+		body.append(chunk, (size_t) n);
+		if (body.size() > 64 * 1024 * 1024)     // a sane ceiling
+			return false;
+	}
+	if (body.empty())
 		return false;
-	body[body_len] = 0;
 	std::string parse_err = picojson::parse(*out, body);
 	return parse_err.empty() && out->is<picojson::object>();
 }
