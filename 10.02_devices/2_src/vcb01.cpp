@@ -30,6 +30,9 @@
 #include "utils.hpp"
 
 #include "vcb01.hpp"
+#ifdef WEBUI
+#include "webvcb01.hpp"
+#endif
 
 using namespace vcb01;
 
@@ -277,12 +280,18 @@ bool vcb01_c::on_param_changed(parameter_c *param)
 bool vcb01_c::on_before_install(void)
 {
     window_failed = false;
-    if (!window.open(display.value, "QBone VCB01", XSIZE, renderer.height())) {
-        ERROR("%s", window.error().c_str());
-        return false;
-    }
-    INFO("display \"%s\" resolved to \"%s\"", display.value.c_str(),
-            window.resolved_display().c_str());
+    // The X display is optional: with no display name the board draws only to
+    // the web interface, so an empty name is not a failure. A name that is set
+    // but cannot be reached still refuses the enable.
+    if (!display.value.empty()) {
+        if (!window.open(display.value, "QBone VCB01", XSIZE, renderer.height())) {
+            ERROR("%s", window.error().c_str());
+            return false;
+        }
+        INFO("display \"%s\" resolved to \"%s\"", display.value.c_str(),
+                window.resolved_display().c_str());
+    } else
+        INFO("no X display configured; drawing to the web interface only");
 
     if (!claim_video_memory()) {
         window.close();
@@ -566,19 +575,26 @@ void vcb01_c::refresh_screen(void)
     pending_height = 0;
     pthread_mutex_unlock(&state_mutex);
 
-    // A CRTC change asked for a different height: resize the window and the
-    // renderer together, here on the one thread that touches Xlib.
+    // A CRTC change asked for a different height: resize the renderer, and the
+    // window too when one is open, here on the one thread that touches Xlib.
     if (want_height != 0 && want_height != renderer.height()) {
         renderer.set_height(want_height);
-        window.resize(XSIZE, want_height);
+        if (window.is_open())
+            window.resize(XSIZE, want_height);
         INFO("screen height %u lines", want_height);
     }
 
     const std::vector<span_t> &spans = renderer.update(video, st);
-    for (const span_t &s : spans)
-        window.put_rows(renderer.pixels(), s.first, s.count);
-    if (!spans.empty())
-        window.flush();
+    if (window.is_open()) {
+        for (const span_t &s : spans)
+            window.put_rows(renderer.pixels(), s.first, s.count);
+        if (!spans.empty())
+            window.flush();
+    }
+#ifdef WEBUI
+    // The web clients get the same frame, whether or not an X window is open.
+    webvcb01_publish(XSIZE, renderer.height(), renderer.pixels(), spans);
+#endif
 }
 
 void vcb01_c::pump_window_events(void)
@@ -634,11 +650,6 @@ void vcb01_c::worker(unsigned instance)
     UNUSED(instance);
 
     while (!workers_terminate) {
-        if (!window.is_open()) {
-            timeout_c::wait_ms(50);
-            continue;
-        }
-
         uint64_t now = now_ms();
 
         // Vertical sync at 60 Hz whatever the screen is refreshed at: a driver
@@ -656,8 +667,13 @@ void vcb01_c::worker(unsigned instance)
 
         if (now >= next_refresh_ms) {
             next_refresh_ms = now + 1000 / (refresh_rate.value ? refresh_rate.value : 30);
-            pump_window_events();
             if (window.is_open())
+                pump_window_events();
+            bool watching = window.is_open();
+#ifdef WEBUI
+            watching = watching || webvcb01_watching();
+#endif
+            if (watching)
                 refresh_screen();
             pthread_mutex_lock(&state_mutex);
             set_register_dati_value(CRTCP_reg, crtc_pointer, __func__);

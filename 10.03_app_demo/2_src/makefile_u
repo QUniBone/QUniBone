@@ -198,6 +198,7 @@ OBJECTS+= $(OBJDIR)/webserver.o	\
 	$(OBJDIR)/webevents.o	\
 	$(OBJDIR)/webconsole.o	\
 	$(OBJDIR)/webconsole_ext.o	\
+	$(OBJDIR)/webvcb01.o	\
 	$(OBJDIR)/webstorage.o	\
 	$(OBJDIR)/webconfigs.o	\
 	$(OBJDIR)/websettings.o	\
@@ -520,6 +521,9 @@ $(OBJDIR)/webconsole.o :  $(WEB_SRC_DIR)/webconsole.cpp $(WEB_SRC_DIR)/webconsol
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/webconsole_ext.o :  $(WEB_SRC_DIR)/webconsole_ext.cpp $(WEB_SRC_DIR)/webconsole_ext.hpp device_configuration.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/webvcb01.o :  $(WEB_SRC_DIR)/webvcb01.cpp $(WEB_SRC_DIR)/webvcb01.hpp $(DEVICE_SRC_DIR)/vcb01_render.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/webstorage.o :  $(WEB_SRC_DIR)/webstorage.cpp $(WEB_SRC_DIR)/webstorage.hpp

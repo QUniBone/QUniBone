@@ -581,6 +581,10 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 .widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 /* a panel whose bezel needs the room takes two columns */
 .rlpanel.span2 { grid-column: span 2; }
+/* the VCB01 shows its framebuffer; give it the room and keep pixels crisp */
+.vcb01-widget { grid-column: span 2; }
+.vcb01-screen { margin-top: 8px; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+.vcb01-screen canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; }
 
 /* removable-media tags */
 .w-tag { font-size: var(--fs-0); padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
@@ -1999,8 +2003,66 @@ function tapeWidget(d) {
   return panel(d, unitOf(d), cap('cap-white', d.enabled, 'TAPE'), '');
 }
 
+/* ---- VCB01 framebuffer, streamed over /ws/vcb01 ----
+   The board's picture arrives as one full frame on connect, then only the
+   screen-line runs that change. It is kept in an offscreen canvas that
+   survives the widget grid being rebuilt, and blitted into the widget's
+   canvas whenever a frame arrives or the widget is redrawn. */
+const VCB01D = { ws: null, off: null, w: 0, h: 0 };
+function vcb01Off() {
+  if (!VCB01D.off) VCB01D.off = document.createElement('canvas');
+  return VCB01D.off;
+}
+function vcb01DrawRows(first, count, bytes, boff) {
+  const w = VCB01D.w, stride = w >> 3;
+  const ctx = vcb01Off().getContext('2d');
+  const img = ctx.createImageData(w, count), d = img.data;
+  for (let r = 0; r < count; r++)
+    for (let x = 0; x < w; x++) {
+      const on = (bytes[boff + r * stride + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const p = (r * w + x) * 4;
+      d[p] = 0; d[p + 1] = on ? 255 : 0; d[p + 2] = 0; d[p + 3] = 255;
+    }
+  ctx.putImageData(img, 0, first);
+}
+function vcb01Blit() {
+  const cv = document.getElementById('vcb01-canvas');
+  if (!cv || !VCB01D.w) return;
+  if (cv.width !== VCB01D.w || cv.height !== VCB01D.h) { cv.width = VCB01D.w; cv.height = VCB01D.h; }
+  cv.getContext('2d').drawImage(VCB01D.off, 0, 0);
+}
+function vcb01Connect() {
+  if (VCB01D.ws && VCB01D.ws.readyState <= WebSocket.OPEN) return;
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
+      + location.host + '/ws/vcb01');
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = ev => {
+    const b = new Uint8Array(ev.data);
+    if (b[0] === 1) {                                  /* full frame */
+      VCB01D.w = (b[1] << 8) | b[2]; VCB01D.h = (b[3] << 8) | b[4];
+      vcb01Off().width = VCB01D.w; vcb01Off().height = VCB01D.h;
+      vcb01DrawRows(0, VCB01D.h, b, 5);
+    } else if (b[0] === 2 && VCB01D.w) {               /* changed span */
+      vcb01DrawRows((b[1] << 8) | b[2], (b[3] << 8) | b[4], b, 5);
+    } else return;
+    vcb01Blit();
+  };
+  ws.onclose = () => { VCB01D.ws = null; };
+  VCB01D.ws = ws;
+}
+function vcb01AfterRender() {
+  if (document.getElementById('vcb01-canvas')) { vcb01Connect(); vcb01Blit(); }
+  else if (VCB01D.ws) { VCB01D.ws.close(); VCB01D.ws = null; }
+}
+function vcb01Widget(d) {
+  return '<div class="rlpanel vcb01-widget">' +
+    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
+    '<div class="vcb01-screen"><canvas id="vcb01-canvas"></canvas></div>' +
+    '</div>';
+}
+
 /* widget registry: model override wins over the category default */
-const WIDGET_MODELS = { RL02: rlWidget, RL01: rlWidget, RA81: ra81Widget };
+const WIDGET_MODELS = { RL02: rlWidget, RL01: rlWidget, RA81: ra81Widget, VCB01: vcb01Widget };
 const WIDGET_CATEGORIES = { disk: diskWidget, network: networkWidget, tape: tapeWidget };
 function widgetFor(d) {
   if (WIDGET_MODELS[d.type]) return WIDGET_MODELS[d.type];
@@ -2018,6 +2080,7 @@ function renderWidgets() {
     .filter(Boolean).join('');
   host.innerHTML = html ||
     '<div class="muted" style="font-size:var(--fs-1); padding:4px">No device widgets — enable a disk or network device.</div>';
+  vcb01AfterRender();
 }
 /* RL drives, for the bezel button handlers */
 function rlDrives() {

@@ -38,6 +38,7 @@
 #include "webevents.hpp"
 #include "webconsole.hpp"
 #include "webconsole_ext.hpp"
+#include "webvcb01.hpp"
 #include "webstorage.hpp"
 #include "webconfigs.hpp"
 #include "websettings.hpp"
@@ -477,6 +478,7 @@ void webapi_register(struct mg_context *ctx) {
 	webevents_register(ctx);
 	webconsole_register(ctx);
 	webconsole_ext_register(ctx);
+	webvcb01_register(ctx);
 	// apply the persisted external-console setting (loaded by
 	// websettings_register) now that the bridge is up
 	external_console_c ec = websettings_external_console();
@@ -485,6 +487,7 @@ void webapi_register(struct mg_context *ctx) {
 
 // called by webserver_c::stop() before the connections close
 void webapi_shutdown(void) {
+	webvcb01_shutdown();
 	webconsole_ext_shutdown();
 	webconsole_shutdown();
 	webevents_shutdown();
