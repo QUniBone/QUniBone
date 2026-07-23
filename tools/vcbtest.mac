@@ -1,0 +1,146 @@
+	.title	vcbtest
+;+
+; Standalone VCB01 exerciser - no operating system.
+;
+; Runs in kernel mode on a halted 11/73. Sets up the memory management unit
+; so it can reach the board's video memory at 16000000 (a 16-bit program
+; cannot), programs the 6845, enables video, lays down a linear scanline map,
+; and draws a pattern. Then halts.
+;
+; The MMU is set up by hand: kernel APRs 0-7 map their own 8K page one to one
+; (so the program, the stack and the I/O page stay where they are), and APR 6
+; is then re-aimed at whichever 8K window of video memory a step needs. APR 6
+; covers virtual 140000-157777; its page address register holds the physical
+; base in 64-byte units, so physical / 100.
+;-
+
+; --- board registers, in the I/O page (reachable without the MMU) ---
+csr	= 177200		; control/status
+crtcp	= 177210		; 6845 address pointer
+crtcd	= 177212		; 6845 data
+
+; --- MMU registers ---
+kisar0	= 172340		; kernel I-space page address register 0
+kisdr0	= 172300		; kernel I-space page descriptor register 0
+kisar6	= 172354		; the window we re-aim
+kisar7	= 172356		; the I/O page window
+mmr0	= 177572		; MMU enable
+mmr3	= 172516		; 22-bit mapping enable
+
+; APR 7 maps virtual 160000-177777 to the I/O page, which on a 22-bit machine
+; is at physical 17760000: base / 100.
+iopage	= 177600
+
+; the 8K window APR 6 maps, as a virtual address
+window	= 140000
+
+; physical bases in 64-byte units (physical / 100)
+vidbot	= 160000		; 16000000 -> bitmap, buffer lines 0..
+vidtop	= 167600		; 16760000 -> the top 8K: scanline map, cursor
+
+	.asect
+	.=1000
+
+start:
+	mov	#2000,sp		; a stack below the program
+
+; --- set up all eight kernel APRs as an identity map -----------------
+; PDR = 077406: full 8K page, read/write. PAR steps 200 (8K / 100) each page.
+	mov	#kisar0,r0
+	mov	#kisdr0,r1
+	clr	r2			; physical base, in 64-byte units
+	mov	#10.,r3
+1$:	mov	r2,(r0)+		; PAR[i] = r2
+	mov	#77406,(r1)+		; PDR[i] = rw, full length
+	add	#200,r2			; next 8K page
+	sob	r3,1$
+
+; APR 7 must reach the real I/O page, not physical 160000.
+	mov	#iopage,@#kisar7
+	mov	#1,@#1400	; marker: APRs set up
+
+; --- turn the MMU on, in 22-bit mode ------------------------------------
+; Video memory at 16000000 is above the 18-bit range, so 22-bit mapping has
+; to be enabled first; reset leaves it off.
+	mov	#20,@#mmr3		; enable 22-bit mapping
+	mov	#1,@#mmr0		; enable the MMU
+	mov	#2,@#1400	; marker: MMU on, fetch survived
+
+; --- program the 6845 from crttab --------------------------------------
+	clr	r0			; CRTC register index
+	mov	#crttab,r1
+	mov	#18.,r2
+2$:	mov	r0,@#crtcp		; select register r0
+	movb	(r1)+,@#crtcd		; write its value
+	inc	r0
+	sob	r2,2$
+	mov	#3,@#1400	; marker: CRTC programmed
+
+; --- lay down a linear scanline map ------------------------------------
+; The map is 1024 words at the top of video memory: word N says which buffer
+; line screen line N shows. Point APR 6 at the top 8K; the map begins
+; 0776000 into video memory, i.e. 016000 into this window.
+; One 8K window of APR 6 holds 64 buffer lines, so the map repeats those 64
+; down the whole screen: screen line N shows buffer line N mod 64.
+; The map is 0774000 into video memory; the top window begins 0760000 in, so
+; the map is at 014000 within it.
+	mov	#vidtop,@#kisar6
+	mov	#window+14000,r0	; start of the map in the window
+	clr	r1			; screen line number
+	mov	#864.,r2		; one entry per visible screen line
+3$:	mov	r1,r4
+	bic	#177700,r4		; r4 = r1 mod 64
+	mov	r4,(r0)+
+	inc	r1
+	sob	r2,3$
+	mov	#4,@#1400	; marker: map loaded
+
+; --- draw into the bitmap ----------------------------------------------
+; Point APR 6 at the bottom 8K: buffer lines 0..127, 128 bytes each. Fill
+; every line with a marker column at the left and a one-bit-walking pattern,
+; so a stride or bit-order fault is visible.
+	mov	#vidbot,@#kisar6
+	clr	r3			; buffer line number, 0..63
+4$:	mov	r3,r0			; byte offset of this line = line * 128.
+	ash	#7,r0			;   (128. = 1 << 7)
+	add	#window,r0		; into the window
+; left marker: two solid words, 32 pixels
+	mov	#177777,(r0)+
+	mov	#177777,(r0)+
+; the line number as set bits, low bit leftmost
+	mov	r3,(r0)+
+; fill the rest of the 128-byte line with zero (61 words)
+	mov	#61.,r1
+	clr	r4
+5$:	mov	r4,(r0)+
+	sob	r1,5$
+	inc	r3
+	cmp	r3,#64.
+	blo	4$
+	mov	#5,@#1400	; marker: bitmap drawn
+
+; --- enable video and stop ---------------------------------------------
+	mov	#4,@#csr		; CSR video enable
+	halt
+
+; --- 6845 timing, the values setlin.mac used (from the VCF DEC forum) ---
+crttab:	.byte	41.			; horizontal total
+	.byte	32.			; horizontal displayed
+	.byte	34.			; hsync position
+	.byte	6			; sync widths
+	.byte	51.			; vertical total
+	.byte	10.			; vertical total adjust
+	.byte	50.			; vertical displayed
+	.byte	50.			; vsync position
+	.byte	4			; mode
+	.byte	15.			; maximum scan line
+	.byte	0			; cursor start
+	.byte	1			; cursor end
+	.byte	0			; start address high
+	.byte	0			; start address low
+	.byte	0			; cursor address high
+	.byte	0			; cursor address low
+	.byte	0			; light pen high
+	.byte	0			; light pen low
+
+	.end	start

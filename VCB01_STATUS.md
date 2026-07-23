@@ -1,8 +1,10 @@
-# VCB01 (QVSS) emulation — work status
+# VCB01 (QVSS) emulation — status
 
 Emulating a DEC VCB01 / QVSS monochrome video subsystem on QBone for the real
-11/73, rendering to a remote X display. This file is the resume point after
-suspending for hardware tests.
+11/73, rendering to a remote X display. The whole path works end to end: the
+bus device, the framebuffer, the refresh worker, the X renderer, and a
+standalone PDP-11 program that drives the board and reads its keyboard and
+mouse.
 
 ## What works
 
@@ -10,96 +12,81 @@ suspending for hardware tests.
   `vcb01_input.*`): registers, CSR (read-only bank field), 6845 CRTC, 8-source
   interrupt controller, SCN2681 DUART (LK201 keyboard on chan A, VSXXX mouse on
   chan B), VSYNC, refresh worker, CRTC-derived height with window resize.
-- **The memory API** (`10.05_web/2_src/webapi.cpp`, committed): `GET`/`POST
-  /api/memory` reads and writes bus memory by DMA, reliably, CPU running or
-  halted. Two fixes made it dependable:
-  - a persistent, address-space-sized buffer under a dedicated mutex — a stale
-    PRU DMA completion memcpy's into the buffer *after* the request returns, so
-    a local buffer got corrupted/crashed;
-  - `read_json_body` reads the full body (was capped at 4096 bytes, which
-    truncated bulk writes to HTTP 400).
-  - Verified again this session: `0→0`, `668→668`, `5349→5349` round-trip clean.
-- **The test card** (`tools/vcb01_testcard.py`, committed, in the repo so it can
-  be run by hand): DMAs a full-screen picture (square grid, border, solid
-  diagonals, crosshair) straight into video memory via `/api/memory` with **no
-  PDP-11 program running** — QBone is bus master. This is the reliable way to
-  paint the screen and it produces a clean image. Layout constants:
-  `XSIZE=1024 YSIZE=864`, 128 bytes/line, scanline map at byte `0o774000`
-  (longword `0xFE00`) of the bank, CSR at `0o17777200`, video bank base
-  `0o16000000`.
+- **The memory API** (`10.05_web/2_src/webapi.cpp`): `GET`/`POST /api/memory`
+  reads and writes bus memory by DMA, CPU running or halted, including I/O-page
+  device registers (the test card enables video by writing the CSR this way).
+- **The test card** (`tools/vcb01_testcard.py`): DMAs a full-screen picture
+  straight into video memory with no PDP-11 program running — QBone is bus
+  master. Layout constants: `XSIZE=1024`, 128 bytes/line, scanline map at byte
+  `0o774000` of the bank, CSR at `0o17777200`, video bank base `0o16000000`.
+- **The standalone demo** (`tools/vcbdemo.mac`): brings the board up from a
+  halted CPU, sets up the MMU itself, programs the 6845, lays down a scanline
+  map, draws the test pattern (border, both diagonals, centre crosshair, cursor)
+  through APR 6, enables video, then loops on the keyboard and pointer. Verified
+  on the real 11/73: the pattern appears on the X display, a keystroke draws its
+  LK201 code as a column of bits along the top, and pointer motion over the
+  window leaves a trail behind the hardware cursor. `tools/vcbtest.mac` is the
+  simpler exerciser it grew from — it draws a static pattern into one 8K window
+  and halts.
 
-## What's unfinished: `vcbdemo.mac`
+## Driving a standalone program onto the board
 
-Standalone, OS-less demo that brings the board up from a halted CPU, sets up the
-MMU itself, draws the pattern, and then reads keyboard + mouse in a loop. Lives
-in `qbus-front-panel/systems/rsx11mplus/vcb01-src/vcbdemo.mac` (a working copy
-with debug markers is in the job tmp dir).
+`tools/dmaload.py` parses a MACRO-11 listing and DMA-loads it through
+`/api/memory`; `tools/odt.py` sends micro-ODT lines over the console WebSocket.
+The cycle used here:
 
-Status: gets through MMU-on (marker 1), CRTC (2), scanline-map load (3), then
-**stops at the first `call mapline` in the bitmap-clear loop** — marker 770
-("mapline returned") never set, and the trap handler (which records the faulting
-PC and APR6) is not triggered. So it's a genuine stop, not slowness, and not a
-*caught* trap.
+1. clear low memory `0..0o777` via `/api/memory` (kills stale vectors),
+2. DMA-load the assembled `.lst` with `dmaload.py`,
+3. `halt` → `continue` (release BHALT) → `1000G` over the console —
+   **`continue` must come before `1000G`**,
+4. read progress markers back with `/api/memory`.
 
-### The big correction (important — don't re-chase this)
+Two things a standalone program and its loader have to get right:
 
-A long investigation concluded that "a `jsr`/`call` double-faults whenever APR6
-maps the video bank." **That was wrong — it was an artifact of my own test
-harness.** Successive test programs left **stale trap vectors** in low memory;
-newer programs didn't reset them, so a benign path jumped to leftover handler
-code and looked like a trap. The tell was a stuck marker value of `8` (= octal
-`10`, the old illegal-instruction handler's marker).
+- **PC-relative operands.** A MACRO-11 listing shows the resolved absolute
+  address for a PC-relative operand (`jsr pc,X(pc)`, i.e. `call`), flagged with
+  a trailing apostrophe (`002412'`), while the object word holds the *offset*
+  from the following word. `dmaload.py` converts these back to offsets; loading
+  the displayed value verbatim sends the first `call` into garbage. Programs
+  with no subroutine calls (like an early `vcbtest`) never expose it.
+- **`setpix` clobbers r2–r5.** It preserves only r0 and r1 (the x,y it draws), so
+  a loop that calls it across a counter must keep the counter in r0 or r1.
 
-After clearing low memory (vectors) before each run and installing a fresh
-handler on **all** fault vectors (4, 10, 14, 20, 250), a `call` loop with APR6
-pointing at the **video bank** runs to completion with no fault. Confirmed the
-same for APR6 mapping identity RAM and non-identity RAM. **Calling subroutines
-while APR6 maps video memory is fine.** The KDJ11 cache (Force-Miss via CCR at
-`0o17777746`) was ruled out as irrelevant along the way.
+## The screen height
 
-### Where the real bug hunt resumes
-
-`vcbdemo.mac` itself only installs vectors 4 and 250. If the clear loop takes an
-unhandled trap on another vector (10/14/20), the PC goes to a zeroed vector →
-HALT at 0, which matches the symptom (stops, no handler fires). But the
-equivalent call loop works in the clean harness, so either:
-
-1. there is a real bug in `mapline`/the clear loop specific to vcbdemo, or
-2. vcbdemo needs the same all-vector handler + clean low memory the harness has.
-
-Next step (was in progress): reproduce vcbdemo's **map-load + clear-loop**
-inside the rigorous harness (clean vectors, all-vector handler, fine-grained
-markers before/after the first `mapline`, after the first line clear) to
-localize the stop. Likely fix: install handlers on all fault vectors in
-vcbdemo and/or find the offending instruction in the clear loop.
-
-Note: `vcbdemo.mac` already carries a fix for the MACRO-11 **no-precedence**
-trap — `#vidbase+<760000/100>` must use `<...>` grouping, since MACRO-11
-evaluates strictly left-to-right with no operator precedence.
+`vcbdemo` draws 1024 × 800 — 50 displayed 6845 rows of 16 scan lines, which is
+what its CRTC timing (the values from setlin.mac) programs. The device derives
+the window height the same way, `crtc[VDSP] * (crtc[MSCN] + 1)`, so the drawn
+pattern fills the window exactly. The renderer's untimed default is 864.
 
 ## Board / workflow reference
 
 - Drive the board through the web API (docs in `10.05_web/docs/api.md`); auth is
   HTTP basic, password in `~/.qbone-pw`, any user name.
 - Console is the 11/73's on-board SLU on the bone's `/dev/ttyS2`, carried by
-  `/ws/console/ext`. DL11 stays disabled. Micro-ODT is reachable there; register
-  examine (`R7/`) did **not** work this session — use memory markers instead.
-- Standalone-program test cycle used this session:
-  1. clear low memory `0..0o777` via `/api/memory` (kills stale vectors),
-  2. DMA-load the assembled `.lst` via `tmp/dmaload.py`,
-  3. `halt` → `continue` (release BHALT) → `1000G` (via `tmp/odt.py` over the
-     console WebSocket) — **must `continue` before `1000G`**,
-  4. read progress markers back with `/api/memory`.
-- MMU facts: kernel APRs 0–7 identity, APR7→I/O page (`0o177600`), MMR3 bit 4 =
-  22-bit, MMR0 bit 0 = enable. Video bank at `0o16000000` sits above the 2 MB
-  RAM card, which is why the ROM reports "Memory is Non contiguous" when the
-  VCB01 is enabled (verified by toggling the device).
-- The 11/73 answers across the whole 22-bit space with a 4 MB card, so an
-  emulated device needing a bus window collides until the memory card is made
-  smaller; the machine currently has a 2 MB card at 0.
+  `/ws/console/ext`. DL11 stays disabled. Micro-ODT is reachable there;
+  register examine (`R7/`) did not work, so progress markers in low memory are
+  how a run is traced.
+- The VCB01 needs a free 256 KB bank in Q22 space, so the machine's memory card
+  has to end below the bank base. The 11/73 currently carries a 2 MB card at 0,
+  which leaves bank 016 (at `0o16000000`) free; a full 4 MB card would collide
+  with it.
+- Enabling the device opens the X window (`display` parameter, e.g.
+  `192.168.2.120:0`, see [[qbone-x-display]]); a display it cannot reach refuses
+  the enable rather than leaving a controller on the bus with nowhere to draw.
+- Capture the actual window with `xwd -id <win> -out f.xwd` (a `-root` capture
+  does not composite windows under XQuartz); `xwdtopnm | magick` turns it into a
+  PNG.
 
-## Scratch files (job tmp dir, not in the repo)
+## Open items
 
-`dmaload.py` (DMA-load a `.lst`), `odt.py` (send ODT over the console
-WebSocket), `mmtest.mac` (isolation harness), `vcbdemo.mac` (working copy with
-markers), `fill_screen.py` (early test-card precursor to `vcb01_testcard.py`).
+- **CRTC readback.** The CRTC data register's DATI latch is refreshed only on a
+  write, not when the address pointer changes, so reading the 18 registers back
+  over the bus returns a stale value. A driver that reads CRTC registers would
+  see it; the fix is to reload the latch from `crtc[pointer]` when the pointer
+  is written.
+- **Interrupt vector timing.** Real hardware selects the vector during the IAK
+  cycle; QBone commits it when `INTR()` is scheduled. Two sources becoming ready
+  between the schedule and the acknowledge would deliver the earlier vector.
+- **Integration.** Web UI device page, packaging (`libx11`), and documentation
+  — phase 5 of `vcb01-plan.md`.

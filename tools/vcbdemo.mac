@@ -1,0 +1,356 @@
+	.title	vcbdemo
+;+
+; Standalone VCB01 demonstration - no operating system.
+;
+; Brings the board up from a halted 11/73 and draws a full-screen test
+; pattern: a border around the edge, the two diagonals, a crosshair through
+; the centre, and the hardware cursor. Every pixel is addressed through the
+; memory management unit, which the program sets up itself, so it exercises
+; the whole framebuffer rather than one window of it. It then loops on the
+; keyboard and pointer: a keystroke draws its code as a column of bits, and
+; the mouse leaves a trail of pixels behind the hardware cursor.
+;
+; Screen is 1024 x 800, the height the 6845 timing here programs (50 displayed
+; rows of 16 scan lines). The bitmap is 128 bytes per line; a line never
+; straddles an 8K page, so a pixel at (x,y) lives in page y/64 of video
+; memory, at byte (y mod 64)*128 + x/8, bit x mod 8.
+;
+; APR 6 (virtual 140000-157777) is aimed at whichever page a pixel needs.
+; APR 7 reaches the I/O page; APRs 0-5 map the program one to one.
+;-
+
+; --- board registers, in the I/O page ---
+csr	= 177200
+cursxp	= 177202		; cursor X
+crtcp	= 177210		; 6845 pointer
+crtcd	= 177212		; 6845 data
+sra	= 177242		; DUART status A  (keyboard)
+cra	= 177244		; DUART command A
+rbufa	= 177246		; DUART rx buffer A
+srb	= 177262		; DUART status B  (pointer)
+crb	= 177264		; DUART command B
+rbufb	= 177266		; DUART rx buffer B
+
+; --- MMU ---
+kisar0	= 172340
+kisdr0	= 172300
+kisar6	= 172354
+kisar7	= 172356
+mmr0	= 177572
+mmr3	= 172516
+iopage	= 177600		; I/O page physical base / 100 (22-bit)
+
+window	= 140000		; the virtual page APR 6 maps
+vidbase	= 160000		; video memory physical base / 100
+
+xmax	= 1024.
+ymax	= 800.			; = CRTC vertical displayed (50) x scan lines (16)
+
+	.asect
+	.=1000
+
+start:
+	mov	#4000,sp
+	mov	#trap,@#4		; bus-error vector
+	mov	#340,@#6
+	mov	#trap,@#250		; MMU-abort vector
+	mov	#340,@#252
+
+; --- kernel APRs 0-7 identity, then APR 7 to the I/O page, MMU on 22-bit ---
+	mov	#kisar0,r0
+	mov	#kisdr0,r1
+	clr	r2
+	mov	#10.,r3
+1$:	mov	r2,(r0)+
+	mov	#77406,(r1)+
+	add	#200,r2
+	sob	r3,1$
+	mov	#iopage,@#kisar7
+	mov	#20,@#mmr3
+	mov	#1,@#mmr0
+	mov	#1,@#774	; marker: MMU on
+
+; --- the 6845 ---
+	clr	r0
+	mov	#crttab,r1
+	mov	#18.,r2
+2$:	mov	r0,@#crtcp
+	movb	(r1)+,@#crtcd
+	inc	r0
+	sob	r2,2$
+	mov	#2,@#774	; marker: CRTC done
+
+; --- linear scanline map: screen line N shows buffer line N ---
+; The map is 014000 into the top page; point APR 6 there and write ymax words.
+	mov	#vidbase+<760000/100>,@#kisar6	; = 167600, the top page
+	mov	#window+14000,r0
+	clr	r1
+	mov	#ymax,r2
+3$:	mov	r1,(r0)+
+	inc	r1
+	sob	r2,3$
+	mov	#3,@#774	; marker: map loaded
+
+; --- clear the bitmap: ymax lines of 128 bytes ---
+	clr	r3			; buffer line
+10$:	mov	r3,@#772		; track: line being cleared
+	call	mapline			; APR 6 -> this line, r0 = line base
+	mov	#1,@#770		; phase: mapline returned
+	mov	#64.,r2			; 64 words per line
+11$:	clr	(r0)+
+	sob	r2,11$
+	mov	#2,@#770		; phase: line cleared
+	inc	r3
+	cmp	r3,#ymax
+	blo	10$
+	mov	#4,@#774	; marker: bitmap cleared
+
+; --- border ---
+	clr	r0			; top edge: y = 0, x = 0..xmax-1
+20$:	mov	#0,r1
+	call	setpix
+	mov	r0,r4
+	mov	#ymax-1,r1		; bottom edge
+	mov	r4,r0
+	call	setpix
+	inc	r0
+	cmp	r0,#xmax
+	blo	20$
+
+	clr	r1			; left edge: x = 0, y = 0..ymax-1
+21$:	mov	#0,r0
+	call	setpix
+	mov	r1,r4
+	mov	#xmax-1,r0		; right edge
+	mov	r4,r1
+	call	setpix
+	inc	r1
+	cmp	r1,#ymax
+	blo	21$
+
+; --- diagonals: (i,i) and (xmax-1-i, i), for i over the height ---
+; The counter is r1 (the y coordinate, i): setpix preserves r0 and r1 but
+; scribbles on r2-r5, so a loop counting across a setpix call must live in one
+; of the two it keeps.
+	clr	r1
+30$:	mov	r1,r0			; \ diagonal: x = i
+	call	setpix
+	mov	#xmax-1,r0		; / diagonal: x = xmax-1-i
+	sub	r1,r0
+	call	setpix
+	inc	r1
+	cmp	r1,#ymax
+	blo	30$
+
+; --- crosshair through the centre ---
+	clr	r0			; horizontal, y = ymax/2
+31$:	mov	#ymax/2,r1
+	call	setpix
+	inc	r0
+	cmp	r0,#xmax
+	blo	31$
+	clr	r1			; vertical, x = xmax/2
+32$:	mov	#xmax/2,r0
+	call	setpix
+	inc	r1
+	cmp	r1,#ymax
+	blo	32$
+
+; --- hardware cursor: a solid block, placed near the centre ---
+; The cursor image is 32 bytes at 157740 in the top page (still mapped).
+	mov	#157740,r0
+	mov	#16.,r2
+40$:	mov	#177777,(r0)+
+	sob	r2,40$
+; position: cursor X register, and Y through the 6845 cursor address.
+	mov	#xmax/2,@#cursxp		; cursor X = centre
+	mov	#14.,r0			; CRTC reg 14 = cursor address high
+	mov	r0,@#crtcp
+	mov	#ymax/2/16.,@#crtcd	; y / 16 -> character row
+	mov	#10.,r0			; CRTC reg 10 = cursor scan start (visible)
+	mov	r0,@#crtcp
+	clr	@#crtcd
+
+; --- enable video, OR the cursor in ---
+	mov	#4+10,@#csr		; VID | FNC(OR cursor)
+	mov	#5,@#cra		; enable keyboard receiver
+	mov	#5,@#crb		; enable pointer receiver
+
+; --- interactive: show keystrokes, let the mouse drive the cursor ----------
+; Keys draw their code as a column of bits, marching left to right along the
+; top. The mouse moves the hardware cursor and leaves a trail of pixels.
+mainloop:
+	bit	#1,@#sra		; keyboard byte ready?
+	beq	50$
+	movb	@#rbufa,r0
+	call	showkey
+50$:	bit	#1,@#srb		; pointer byte ready?
+	beq	mainloop
+	movb	@#rbufb,r0
+	call	mousebyte
+	br	mainloop
+
+;+
+; showkey: draw the 8 bits of the code (r0) as a vertical column near the top,
+; top bit lowest, then step the column right and wrap it. Loop state is kept in
+; memory because setpix uses the registers.
+;-
+showkey:
+	mov	r0,@#skcode
+	mov	@#kx,r0
+	add	#20.,r0
+	mov	r0,@#skx		; column x, clear of the border
+	mov	#20.,@#sky		; starting y
+	mov	#8.,@#skn		; eight bits
+60$:	mov	@#skcode,r0
+	ror	r0			; next bit into carry
+	mov	r0,@#skcode
+	bcc	61$
+	mov	@#skx,r0
+	mov	@#sky,r1
+	call	setpix
+61$:	inc	@#sky
+	dec	@#skn
+	bne	60$
+	mov	@#kx,r0			; step the column, wrap before centre
+	add	#3,r0
+	cmp	r0,#400.
+	blo	62$
+	clr	r0
+62$:	mov	r0,@#kx
+	return
+
+;+
+; mousebyte: a three-byte VSXXX report arrives one byte per call - header
+; (buttons and axis signs), then the X magnitude, then the Y magnitude. On the
+; third byte the cursor moves and a pixel is left behind.
+;-
+mousebyte:
+	mov	@#mstate,r1
+	beq	70$			; header
+	dec	r1
+	beq	71$			; X magnitude
+					; Y magnitude: act on the full report
+	mov	r0,@#mdy
+; new Y
+	mov	@#cury,r3
+	bit	#10,@#mhdr		; sign of Y: set = up
+	beq	72$
+	cmp	@#mdy,r3		; up: clamp at 0
+	bhi	73$			; would go negative
+	sub	@#mdy,r3
+	br	74$
+73$:	clr	r3
+	br	74$
+72$:	add	@#mdy,r3		; down: clamp at the bottom
+	cmp	r3,#ymax
+	blo	74$
+	mov	#ymax-1,r3
+74$:	mov	r3,@#cury
+; new X
+	mov	@#curx,r3
+	bit	#20,@#mhdr		; sign of X: set = right
+	bne	75$
+	cmp	@#mdx,r3		; left: clamp at 0
+	bhi	76$
+	sub	@#mdx,r3
+	br	77$
+76$:	clr	r3
+	br	77$
+75$:	add	@#mdx,r3		; right: clamp at the edge
+	cmp	r3,#xmax
+	blo	77$
+	mov	#xmax-1,r3
+77$:	mov	r3,@#curx
+	call	movecursor
+	mov	@#curx,r0		; leave a trail pixel
+	mov	@#cury,r1
+	call	setpix
+	clr	@#mstate
+	return
+70$:	mov	r0,@#mhdr		; header saved, expect X next
+	mov	#1,@#mstate
+	return
+71$:	mov	r0,@#mdx		; X saved, expect Y next
+	mov	#2,@#mstate
+	return
+
+;+
+; movecursor: point the hardware cursor at (curx, cury). Uses r0,r4,r5.
+;-
+movecursor:
+	mov	@#curx,@#cursxp		; cursor X register
+	mov	#14.,r4			; CRTC 14 = cursor address high = y/16
+	mov	@#cury,r5
+	ash	#-4,r5
+	call	setcrtc
+	mov	#10.,r4			; CRTC 10 = cursor scan start = y&15, visible
+	mov	@#cury,r5
+	bic	#177760,r5
+	call	setcrtc
+	return
+
+setcrtc:				; r4 = register, r5 = value
+	mov	r4,@#crtcp
+	mov	r5,@#crtcd
+	return
+
+kx:	.word	0
+skcode:	.word	0
+skx:	.word	0
+sky:	.word	0
+skn:	.word	0
+curx:	.word	xmax/2
+cury:	.word	ymax/2
+mstate:	.word	0
+mhdr:	.word	0
+mdx:	.word	0
+mdy:	.word	0
+
+trap:	mov	(sp),@#770		; faulting PC (return addr on the trap frame)
+	mov	@#kisar6,@#766		; APR6 at the fault
+	halt
+
+;+
+; setpix: set the pixel at (r0 = x, r1 = y). Preserves r0 and r1; uses r2-r5.
+;-
+setpix:
+	mov	r1,r2			; page = y/64: APR 6 base
+	bic	#77,r2			; (y & ~63)
+	ash	#1,r2			; *2 = (y/64)*128, the PAR offset
+	add	#vidbase,r2
+	mov	r2,@#kisar6
+	mov	r1,r3			; offset in page = (y & 63)*128 + x/8
+	bic	#177700,r3		; y & 63
+	ash	#7,r3			; *128
+	mov	r0,r4
+	ash	#-3,r4			; x/8
+	add	r4,r3
+	add	#window,r3		; virtual byte address
+	mov	r0,r4			; bit = 1 << (x & 7)
+	bic	#177770,r4
+	mov	#1,r5
+	ash	r4,r5
+	bisb	r5,(r3)
+	return
+
+;+
+; mapline: point APR 6 at buffer line r3 and return its window base in r0.
+; Preserves r3.
+;-
+mapline:
+	mov	r3,r0
+	bic	#77,r0
+	ash	#1,r0
+	add	#vidbase,r0
+	mov	r0,@#kisar6
+	mov	r3,r0
+	bic	#177700,r0		; line & 63
+	ash	#7,r0			; *128
+	add	#window,r0
+	return
+
+; --- 6845 timing (VCF DEC forum values, as setlin.mac) ---
+crttab:	.byte	41.,32.,34.,6,51.,10.,50.,50.,4,15.,0,1,0,0,0,0,0,0
+
+	.end	start
