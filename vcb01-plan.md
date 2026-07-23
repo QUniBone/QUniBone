@@ -280,10 +280,24 @@ video, then draws is fine; one that enables video over content it has already
 written showed nothing. Fixed by repainting the whole screen when video-enable
 changes, with a self-test check for the sequence.
 
-Still to come: a standalone program driving the board from the CPU rather than
-by hand, and after that the same under RSX-11M+ - modelled on the RSXstation
-write-up's clear, fill, line and banner programs - if the machine can carry
-enough memory for it alongside the bank.
+A standalone program then drove the board from the CPU rather than by hand
+(2026-07-23). Running on the 256 KB machine with no operating system, it sets
+up the MMU itself - kernel APRs identity-mapped, 22-bit mode, APR 7 aimed at
+the real I/O page and APR 6 windowed onto video memory - programs the 6845 with
+the setlin.mac timing, lays down a scanline map that repeats 64 buffer lines
+down the whole screen, draws into the bitmap, and enables video. It ran to a
+clean halt and the pattern appeared. The program is `vcbtest.mac`, kept with
+the RSXstation sources.
+
+Two of its own bugs, both found by writing a progress marker to low memory at
+each phase: a 16-bit program cannot reach 16000000 at all, so the whole MMU
+setup is load-bearing and APR 7 has to map the real I/O page rather than
+identity; and an octal offset error put the scanline-map write past APR 6's
+window into the I/O page, taking a bus-timeout trap.
+
+Still to come: the same under RSX-11M+ - modelled on the RSXstation write-up's
+clear, fill, line and banner programs - if the machine can carry enough memory
+for it alongside the bank.
 
 **3 — Keyboard.** SCN2681 channel A and the LK201 model. Verified by a Macro-11
 program echoing keycodes to the console.
