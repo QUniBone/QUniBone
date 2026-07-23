@@ -1,0 +1,65 @@
+	.title	vcbboot
+;+
+; RL02 boot block for the VCB01 test program.
+;
+; The KDJ11 ROM reads this block into address 0 and runs it, with the drive's
+; heads already at cylinder 0. It reads the test program from the sectors that
+; follow into memory at 1000 and jumps there. The program is stored raw, one
+; sector after this block, and is assembled to run at 1000.
+;-
+	rlcsr	= 174400
+	rlba	= 2			; register offsets from the CSR base
+	rlda	= 4
+	rlmp	= 6
+
+	cmstat	= 4			; get status  (2 << 1)
+	cmseek	= 6			; seek        (3 << 1)
+	cmrdhd	= 10			; read header (4 << 1)
+	cmrdda	= 14			; read data   (6 << 1)
+
+	nsect	= 16.			; sectors of the program to load (4 KB)
+	load	= 1000			; where the program runs
+
+	.asect
+	.	= 0
+; DEC bootable-volume header the KDJ11 ROM recognizes, taken from a stock
+; bootable RL pack: two NOP/branch pairs bracket the boot descriptor and lead
+; to the loader at offset 44.
+	.word	000240,000407,000006,000000,000012,000000,000240,000240
+	.word	174400,000240,000407,000000,000400,000000,000000,000000
+	.word	000000,000000
+	.	= 44
+boot:
+	mov	#rlcsr,r1		; drive 0's controller
+
+	mov	#013,rlda(r1)		; reset + get status
+	mov	#cmstat,(r1)
+1$:	tstb	(r1)			; wait for controller ready
+	bpl	1$
+
+	mov	#cmrdhd,(r1)		; read header -> current cyl/head/sector
+2$:	tstb	(r1)
+	bpl	2$
+
+	mov	rlmp(r1),r2		; seek back to cylinder 0
+	bic	#77,r2
+	inc	r2
+	mov	r2,rlda(r1)
+	mov	#cmseek,(r1)
+3$:	tstb	(r1)
+	bpl	3$
+
+	mov	#1,rlda(r1)		; cyl 0, head 0, sector 1
+	mov	#load,rlba(r1)		; into memory at 1000
+	mov	#-<nsect*128.>,rlmp(r1)	; word count, two's complement
+	mov	#cmrdda,(r1)		; read the program
+4$:	tstb	(r1)
+	bpl	4$
+
+	tst	(r1)			; composite error in bit 15?
+	bmi	9$
+	jmp	@#load			; run the test program
+
+9$:	halt				; the read failed - stop for the operator
+
+	.end	boot
