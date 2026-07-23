@@ -69,8 +69,14 @@ bool RL0102_c::on_param_changed(parameter_c *param)
             return false;
         }
     } else if (image_is_param(param)
-               && image_recreate_on_param_change(param) )
+               && image_recreate_on_param_change(param) ) {
+        // A drive with a cartridge comes up loaded: attaching an image presses
+        // the LOAD button, so it spins up to READY without a manual runstop
+        // toggle. An empty image (detach) leaves it in LOAD.
+        if (param == &image_filepath)
+            runstop_button.value = !image_filepath.new_value.empty();
         return true ; // param accepted
+    }
 
     // more actions (enable)
     return storagedrive_c::on_param_changed(param); // more actions (for enable)
