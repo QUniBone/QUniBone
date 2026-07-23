@@ -579,6 +579,9 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 /* ============================ device widgets ============================ */
 /* the column is wide enough for a four-cap switch plate in one row */
 .widget-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: start; }
+/* each widget stands at its own height; a short panel beside a tall one (the
+   VCB01 screen) sizes to its own content rather than stretching to the row */
+.widget-grid .rlpanel { height: auto; }
 /* a panel whose bezel needs the room takes two columns */
 .rlpanel.span2 { grid-column: span 2; }
 /* the VCB01 shows its framebuffer; give it the room and keep pixels crisp */
@@ -678,208 +681,93 @@ button.rl-img.swap:hover { border-color: var(--accent); color: var(--accent); }
 </head>
 <body>
 
-<div class="app">
-  <aside class="sidebar">
-    <div class="wordmark">
-      <div class="mark">Q</div>
-      <div>
-        <span class="name">QBone</span>
-        <span class="sub">QBUS bridge</span>
-      </div>
-    </div>
-    <nav class="nav" id="nav"></nav>
-    <div class="foot" id="foot">
-      web interface
-    </div>
-  </aside>
-
-  <div class="main">
-    <header class="topbar">
-      <h1 id="page-title">Dashboard</h1>
-      <span class="pill" id="pill-dcok"><span class="dot ok"></span>DCOK</span>
-      <span class="pill" id="pill-pok"><span class="dot ok"></span>POK</span>
-      <span class="pill mono" id="pill-addrwidth">addr —</span>
-      <span class="pill" id="conn-pill"><span class="dot warn"></span>connecting…</span>
-    </header>
-
-    <main class="content">
-
-      <!-- ============================ DASHBOARD ============================ -->
-      <section class="page" data-page="dashboard">
-        <div class="dash-top">
-          <div class="dash-left">
-            <div class="card ctrl-card">
-              <div class="card-head"><h3>Control</h3></div>
-              <div class="card-body ctrl-btns">
-                <button class="btn danger" data-danger="halt"><span class="lbl"><span class="idle">Halt</span><span class="armed-lbl">Click again to halt</span></span></button>
-                <button class="btn danger" data-danger="continue"><span class="lbl"><span class="idle">Continue</span><span class="armed-lbl">Click again to continue</span></span></button>
-                <button class="btn danger" data-danger="powercycle"><span class="lbl"><span class="idle">Power cycle</span><span class="armed-lbl">Click again to power cycle</span></span></button>
-              </div>
-            </div>
-            <div class="card frontpanel">
-              <div class="card-head"><h3>Front panel</h3></div>
-              <div class="card-body">
-                <div class="fp-row"><span class="fp-k">Bus</span>
-                  <span class="chip ok" id="bus-run">run</span>
-                  <span class="chip out" id="bus-halt">halt</span>
-                  <span class="chip out" id="bus-init">init</span></div>
-                <div class="fp-row"><span class="fp-k">LEDs</span>
-                  <span class="ledrow">
-                    <span class="led" id="hw-led0"></span><span class="led" id="hw-led1"></span>
-                    <span class="led" id="hw-led2"></span><span class="led" id="hw-led3"></span>
-                  </span></div>
-                <div class="fp-row"><span class="fp-k">DIP</span>
-                  <span class="dipsw">
-                    <span class="dip" id="hw-dip0"></span><span class="dip" id="hw-dip1"></span><span class="dip" id="hw-dip2"></span><span class="dip" id="hw-dip3"></span>
-                  </span></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="dash-term">
-            <div class="term-tabs">
-              <button id="tab-slu0" style="display:none">SLU0 · 777560</button>
-              <button id="tab-slu1" style="display:none">SLU1 · 776500</button>
-              <button id="tab-serial">Console</button>
-              <span id="serial-bar" style="display:none">
-                <select id="ext-source" aria-label="console source">
-                  <option value="webserial">Mac (Web Serial)</option>
-                  <option value="ttys2">BBB /dev/ttyS2</option>
-                  <option value="off">Off</option>
-                </select>
-                <select id="serial-baud" aria-label="baud rate">
-                  <option>300</option><option>1200</option><option>2400</option>
-                  <option>4800</option><option>9600</option><option>19200</option>
-                  <option selected>38400</option>
-                </select>
-                <button class="btn small" id="serial-connect">Connect</button>
-              </span>
-            </div>
-            <div class="term" id="term" tabindex="0" aria-label="VT100 terminal, 80 columns by 24 rows"></div>
-          </div>
-        </div>
-
-        <div class="widget-grid" id="device-widgets" style="margin-top:14px"></div>
-      </section>
-
-      <!-- ============================ DEVICES ============================ -->
-      <section class="page" data-page="devices">
-        <div id="device-list"></div>
-      </section>
-
-      <!-- ============================ STORAGE ============================ -->
-      <section class="page" data-page="storage">
-        <div class="dropzone" id="dropzone">Drop an image file here to upload, or click to choose · <span class="mono">.rl02 .rl01 .rk05 .rx2 .dsk .tap (.gz ok)</span></div>
-        <input type="file" id="img-file" hidden>
-        <div class="card">
-          <div class="table-wrap">
-            <table class="data" id="image-table">
-              <thead>
-                <tr><th>Image</th><th class="num">Size</th><th>Used by</th><th>Modified</th><th></th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================ CONFIGURATIONS ============================ -->
-      <section class="page" data-page="configurations">
-        <div id="cfg-list"></div>
-      </section>
-
-      <!-- ============================ MACHINE ============================ -->
-      <section class="page" data-page="machine">
-        <p class="lede">Machine-wide hardware settings — global to the QBone, not
-          tied to any one emulated device.</p>
-        <div class="card" style="margin-bottom:14px; max-width:560px">
-          <div class="card-head"><h3>Bus</h3></div>
-          <div class="card-body">
-            <div class="set-grid">
-              <div class="set-name">Platform</div>
-              <div class="set-val"><span class="pill mono" id="set-platform">—</span></div>
-              <div class="set-info">Bus type, fixed at build time.</div>
-
-              <div class="set-name">Address width</div>
-              <div class="set-val">
-                <select id="set-addrwidth" class="mono">
-                  <option value="16">16-bit</option>
-                  <option value="18">18-bit</option>
-                  <option value="22">22-bit</option>
-                </select>
-                <span class="muted" id="set-addrwidth-note" style="font-size:var(--fs-0)"></span>
-              </div>
-              <div class="set-info">CPU address width. Changing it re-bases the I/O
-                page, so it applies only while the bus is halted.</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card" style="max-width:560px">
-          <div class="card-head"><h3>External console</h3></div>
-          <div class="card-body">
-            <p class="muted" style="margin:0 0 12px; font-size:var(--fs-1)">
-              Where the real machine's console line is read. Shown as the
-              <span class="mono">Console</span> tab on the dashboard.</p>
-            <div class="set-grid">
-              <div class="set-name">Source</div>
-              <div class="set-val">
-                <label class="radio"><input type="radio" name="extsrc" value="webserial"> Mac (Web Serial)</label>
-                <label class="radio"><input type="radio" name="extsrc" value="ttys2"> BBB <span class="mono">/dev/ttyS2</span></label>
-                <label class="radio"><input type="radio" name="extsrc" value="off"> Off</label>
-              </div>
-              <div class="set-info">Web Serial reads a USB serial port on the browser's
-                own machine; ttyS2 reads a UART on the BeagleBone.</div>
-
-              <div class="set-name">Baud</div>
-              <div class="set-val">
-                <select id="set-extbaud" class="mono">
-                  <option>300</option><option>1200</option><option>2400</option>
-                  <option>4800</option><option>9600</option><option>19200</option>
-                  <option>38400</option>
-                </select>
-              </div>
-              <div class="set-info">Line speed for the ttyS2 source. The dashboard's
-                console tab carries the same selector.</div>
-            </div>
-            <div id="set-ext-note" class="muted" style="font-size:var(--fs-0); margin-top:10px"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============================ LOG ============================ -->
-      <section class="page" data-page="log">
-        <div class="card logcard">
-          <div class="card-head">
-            <div class="filter-row" style="margin:0 0 0 auto" id="log-filters">
-              <span class="chip err" data-lvl="ERROR">error</span>
-              <span class="chip warn" data-lvl="WARNING">warning</span>
-              <span class="chip ok" data-lvl="INFO">info</span>
-              <span class="chip off inactive" data-lvl="DEBUG">debug</span>
-            </div>
-          </div>
-          <div class="card-body logbox" id="diag-log"></div>
-        </div>
-      </section>
-
-    </main>
-  </div>
-</div>
-
+<div id="app"></div>
 <div class="toast-host" id="toasts"></div>
 
-<script>
+<script type="module">
+import { html, render, Component, createContext } from './vendor/preact-standalone.js';
+import { useState, useEffect, useRef, useContext, useCallback } from './vendor/preact-standalone.js';
 
 /* ============================================================
-   Live backend integration. DEVMODEL is rendered everywhere;
-   it holds the device tree /api/devices reports, and stays
-   empty until that first answer arrives.
-   ============================================================ */
-let DEVMODEL = [];
+   QBone web interface — Preact + htm, no build step.
 
-function octalStr(v, bitwidth) {
-  return v.toString(8).padStart(Math.ceil((bitwidth || 16) / 3), '0');
+   The declarative UI (sidebar, topbar, pages, device list, widgets)
+   is Preact. The imperative browser APIs it drives — xterm.js
+   terminals, Web Serial, the WebSocket streams, the promise-based
+   modals and the toasts — stay as plain modules and are wired to
+   the component tree through a small shared store.
+   ============================================================ */
+
+/* ---------------- shared store ----------------
+   One mutable object plus a listener set. Components read it through
+   useStore() and re-render when any field changes. High-frequency lamp
+   events are coalesced with a short timer so a busy device does not
+   thrash the whole tree. */
+const store = {
+  devmodel: [], settings: { platform: '', address_width: 22,
+      external_console: { source: 'webserial', port: 'ttyS2', baud: 38400 } },
+  images: [], imagesDir: '', configs: null, platform: '',
+  connected: false, page: 'dashboard',
+  bus: { halted: false, init: false },
+  hw: { dcok: true, pok: true, leds: [false,false,false,false], dip: [false,false,false,false] },
+  log: [], activeLevels: new Set(['ERROR','WARNING','INFO']),
+  termReady: false, activeTerm: 'slu0',
+  listeners: new Set(),
+};
+let emitPending = false;
+function emit() {
+  if (emitPending) return;
+  emitPending = true;
+  queueMicrotask(() => { emitPending = false; store.listeners.forEach(l => l()); });
 }
+function setStore(patch) { Object.assign(store, patch); emit(); }
+let widgetEmitPending = false;
+function emitSoon() { /* coalesce lamp storms */
+  if (widgetEmitPending) return;
+  widgetEmitPending = true;
+  setTimeout(() => { widgetEmitPending = false; store.listeners.forEach(l => l()); }, 150);
+}
+function useStore() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const l = () => force(x => x + 1);
+    store.listeners.add(l);
+    return () => store.listeners.delete(l);
+  }, []);
+  return store;
+}
+
+/* ---------------- small helpers ---------------- */
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function octalStr(v, bitwidth) { return v.toString(8).padStart(Math.ceil((bitwidth || 16) / 3), '0'); }
+function humanSize(n) {
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+  return n + ' B';
+}
+function imageLabel(path) {
+  if (!path) return '';
+  const pfx = store.imagesDir + '/';
+  if (store.imagesDir && path.startsWith(pfx)) {
+    const rest = path.slice(pfx.length);
+    if (rest.indexOf('/') === -1) return rest;
+  }
+  return path;
+}
+const wsURL = p => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + p;
+
+/* ---------------- toasts (imperative overlay) ---------------- */
+function toast(cmd, msg) {
+  const host = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = (cmd ? '<div class="cmd">&gt; ' + esc(cmd) + '</div>' : '') +
+                 (msg ? '<div class="msg">' + esc(msg) + '</div>' : '');
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 3600);
+}
+
+/* ---------------- live model from /api/devices ---------------- */
 function liveParam(p) {
   const out = { n: p.name, s: p.shortname, ro: p.readonly, i: p.info || '', u: p.unit || '' };
   if (p.type === 'unsigned' || p.type === 'unsigned64') {
@@ -887,6 +775,7 @@ function liveParam(p) {
     else { out.t = 'uint'; out.v = String(p.value); }
   } else if (p.type === 'double') { out.t = 'dbl'; out.v = String(p.value); }
   else if (p.type === 'bool') { out.t = 'str'; out.v = p.value ? '1' : '0'; }
+  else if (p.type === 'enum') { out.t = 'enum'; out.v = p.value == null ? '' : String(p.value); out.opts = p.values || p.options || []; }
   else { out.t = 'str'; out.v = p.value == null ? '' : String(p.value); }
   return out;
 }
@@ -907,33 +796,28 @@ function liveModel(devs) {
   });
   return roots;
 }
+function walkDevs(fn, list = store.devmodel) { list.forEach(d => { fn(d); walkDevs(fn, d.drives || []); }); }
+function enabledDevices() { const out = []; walkDevs(d => { if (d.enabled) out.push(d); }); return out; }
+function devEnabled(name) { let f = false; walkDevs(d => { if (d.name === name && d.enabled) f = true; }); return f; }
 
-async function apiSetParam(dev, param, value) {
-  const r = await fetch('/api/devices/' + encodeURIComponent(dev) + '/params/' + encodeURIComponent(param), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: String(value) }),
-  });
+/* ---------------- API ---------------- */
+async function apiJSON(url, opts) {
+  const r = await fetch(url, opts);
   const data = await r.json().catch(() => ({}));
   return { ok: r.ok, data };
 }
-async function apiControl(action) {
-  const r = await fetch('/api/control', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action }),
-  });
-  const data = await r.json().catch(() => ({}));
-  return { ok: r.ok, data };
+async function apiSetParam(dev, param, value) {
+  return apiJSON('/api/devices/' + encodeURIComponent(dev) + '/params/' + encodeURIComponent(param), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: String(value) }) });
 }
 async function refreshDevices() {
   const r = await fetch('/api/devices');
   if (!r.ok) throw new Error('devices fetch failed');
-  DEVMODEL = liveModel(await r.json());
-  replayEventValues(); // the snapshot may predate values the event stream already delivered
-  renderDevices(); renderNav(); renderDevChips(); updateTermTabs();
-  const cur = document.querySelector('.page.active');
-  if (cur) $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.nav === cur.dataset.page));
+  setStore({ devmodel: liveModel(await r.json()) });
+  replayEventValues();
+  emit();
 }
-/* set a parameter; toast shows the assignment and the device's verdict */
 async function liveSetParam(dev, param, value, okMsg) {
   const res = await apiSetParam(dev, param, value);
   toast(dev + '.' + param + ' = ' + (value === '' ? '""' : value),
@@ -941,167 +825,34 @@ async function liveSetParam(dev, param, value, okMsg) {
   refreshDevices().catch(() => {});
 }
 async function liveControl(action, okMsg) {
-  const res = await apiControl(action);
+  const res = await apiJSON('/api/control', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
   toast('control: ' + action, res.ok ? okMsg : (res.data.error || 'rejected'));
-}
-
-/* ---------------- machine settings: /api/settings ---------------- */
-/* the directory the backend keeps images in, from /api/state */
-let IMAGES_DIR = '';
-/* An image is shown by name while it lives in that directory. One attached
-   from anywhere else keeps its full path, so a drive running off a file the
-   Storage page does not manage is visible as exactly that. */
-function imageLabel(path) {
-  if (!path) return '';
-  const pfx = IMAGES_DIR + '/';
-  if (IMAGES_DIR && path.startsWith(pfx)) {
-    const rest = path.slice(pfx.length);
-    if (rest.indexOf('/') === -1) return rest;
-  }
-  return path;
-}
-
-let SETTINGS = { platform: '', address_width: 22,
-                 external_console: { source: 'webserial', port: 'ttyS2', baud: 38400 } };
-function renderSettings() {
-  const s = SETTINGS;
-  $('#pill-addrwidth').textContent = 'addr ' + s.address_width + '-bit';
-  const plat = $('#set-platform'); if (plat) plat.textContent = s.platform || '—';
-  const aw = $('#set-addrwidth'); if (aw) aw.value = String(s.address_width);
-  const ec = s.external_console || {};
-  $$('input[name="extsrc"]').forEach(r => { r.checked = r.value === ec.source; });
-  const baud = $('#set-extbaud'); if (baud) baud.value = String(ec.baud || 38400);
-  updateConsoleSource();
 }
 async function refreshSettings() {
   const r = await fetch('/api/settings');
   if (!r.ok) throw new Error('settings fetch failed');
-  SETTINGS = await r.json();
-  renderSettings();
+  setStore({ settings: await r.json() });
+  updateConsoleSource();
 }
 async function putSettings(patch, okMsg) {
-  const r = await fetch('/api/settings', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  });
-  const data = await r.json().catch(() => ({}));
-  const warns = (data.warnings || []).join('; ');
-  toast('PUT /api/settings', warns || (r.ok ? okMsg : (data.error || 'rejected')));
+  const res = await apiJSON('/api/settings', { method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  const warns = (res.data.warnings || []).join('; ');
+  toast('PUT /api/settings', warns || (res.ok ? okMsg : (res.data.error || 'rejected')));
   await refreshSettings().catch(() => {});
-  return { ok: r.ok, data };
+  return res;
 }
-document.addEventListener('change', e => {
-  if (e.target.id === 'set-addrwidth')
-    putSettings({ address_width: parseInt(e.target.value, 10) }, 'address width set');
-  else if (e.target.name === 'extsrc' || e.target.id === 'ext-source')
-    putSettings({ external_console: { source: e.target.value } }, 'console source set');
-  else if (e.target.id === 'set-extbaud')
-    putSettings({ external_console: { baud: parseInt(e.target.value, 10) } }, 'baud set');
-  else if (e.target.id === 'serial-baud') {
-    /* the tab-bar selector speaks to whichever port the source names: the
-       BeagleBone UART is a machine setting, a Web Serial port is local and
-       takes its speed when it is opened */
-    const baud = parseInt(e.target.value, 10);
-    if ((SETTINGS.external_console || {}).source === 'ttys2')
-      putSettings({ external_console: { baud } }, 'baud set');
-    else
-      localStorage.setItem('webserial.baud', String(baud));
-  }
-});
-/* the dashboard "Console" tab follows the external-console source: a
-   browser-local Web Serial port (the Mac) or the BeagleBone's ttyS2 via
-   /ws/console/ext. The Machine page and the tab's own dropdown both drive it. */
-let extWs = null;
-function extConsoleDisconnectWs() {
-  if (extWs) { try { extWs.close(); } catch (e) {} extWs = null; }
-}
-function wireExtConsoleWs() {
-  const t = TERMS.serial;
-  extConsoleDisconnectWs();
-  (function connect() {
-    if ((SETTINGS.external_console || {}).source !== 'ttys2') return;
-    extWs = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
-        + location.host + '/ws/console/ext');
-    extWs.binaryType = 'arraybuffer';
-    extWs.onmessage = e => t.term.write(new Uint8Array(e.data));
-    extWs.onclose = () => { extWs = null;
-      if ((SETTINGS.external_console || {}).source === 'ttys2') setTimeout(connect, 2000); };
-  })();
-}
-let updateConsoleSource = function () {
-  if (!TERMS) return;
-  const src = (SETTINGS.external_console || {}).source || 'off';
-  const sel = $('#ext-source'); if (sel) sel.value = src;
-  if (serialPort) serialDisconnect();
-  extConsoleDisconnectWs();
-  const webserial = src === 'webserial';
-  $('#serial-connect').style.display = webserial ? '' : 'none';
-  /* both ports have a line speed, so the selector stays with either source */
-  const baud = $('#serial-baud');
-  baud.style.display = src === 'off' ? 'none' : '';
-  baud.disabled = false;
-  baud.value = webserial
-    ? (localStorage.getItem('webserial.baud') || '38400')
-    : String((SETTINGS.external_console || {}).baud || 38400);
-  // status belongs in the tab bar, never in the terminal: everything on
-  // screen there came from the host
-  if (src === 'ttys2')
-    wireExtConsoleWs();
-};
-function setConn(ok) {
-  $('#conn-pill').innerHTML = ok
-    ? '<span class="dot ok"></span>connected'
-    : '<span class="dot warn"></span>disconnected';
-}
-async function initLive() {
-  try {
-    const st = await fetch('/api/state');
-    if (!st.ok) throw new Error();
-    const state = await st.json();
-    IMAGES_DIR = state.images_dir || '';
-    await checkAuth().catch(() => {});
-    await refreshDevices();
-    setConn(true);
-    $('#foot').innerHTML = esc(state.platform || '') + '<br>web interface';
-    await refreshSettings().catch(() => {});
-    initEvents();
-    initLiveTerminal();
-    renderWidgets();
-  } catch (e) {
-    setConn(false);
-    $('#device-widgets').innerHTML =
-      '<div class="muted" style="font-size:var(--fs-1); padding:4px">' +
-      'No answer from the QBone — the page shows nothing until it responds.</div>';
-  }
+async function refreshImages() {
+  const r = await fetch('/api/images');
+  if (!r.ok) throw new Error('images fetch failed');
+  setStore({ images: await r.json() });
 }
 
 /* ---------------- live events: /ws/events ---------------- */
-/* Multiplexed JSON stream: committed parameter changes, log messages,
-   hardware state. The UI re-renders from the patched model — it never
-   assumes a write succeeded. */
-let eventsWs = null;
-let renderPending = false;
-function scheduleRender() {
-  if (renderPending) return;
-  renderPending = true;
-  setTimeout(() => {
-    renderPending = false;
-    renderDevices(); renderDevChips(); renderNav(); renderWidgets();
-    updateTermTabs();
-  }, 100);
-}
-/* Activity lamps report every transfer, so they arrive continuously while a
-   device is busy and only ever change a widget. Redraw the widgets alone for
-   those, at a rate a panel light is legible at: rebuilding the device list,
-   nav and chips at lamp speed starves the page. */
-let widgetRenderPending = false;
-function scheduleWidgetRender() {
-  if (widgetRenderPending || renderPending) return;
-  widgetRenderPending = true;
-  setTimeout(() => { widgetRenderPending = false; renderWidgets(); }, 200);
-}
+const EVENT_VALUES = new Map();
 function applyParamValue(dev, name, value) {
-  (function walk(list) { list.forEach(d => {
+  walkDevs(d => {
     if (d.name === dev) {
       if (name === 'enabled') d.enabled = !!value;
       if (name === 'image') d.img = String(value || '');
@@ -1112,19 +863,9 @@ function applyParamValue(dev, name, value) {
         else p.v = value == null ? '' : String(value);
       }
     }
-    walk(d.drives || []);
-  }); })(DEVMODEL);
+  });
 }
-/* The event stream is the freshest source for parameter values: a device
-   updates a lamp microseconds after the write that caused it, while a
-   /api/devices snapshot requested at the same moment still carries the old
-   value and lands later. Remember what events reported and replay it onto
-   every rebuilt model, or the snapshot silently undoes them. */
-const EVENT_VALUES = new Map(); // "dev\0param" -> latest value seen on /ws/events
-function patchParam(dev, name, value) {
-  EVENT_VALUES.set(dev + '\0' + name, value);
-  applyParamValue(dev, name, value);
-}
+function patchParam(dev, name, value) { EVENT_VALUES.set(dev + '\0' + name, value); applyParamValue(dev, name, value); }
 function replayEventValues() {
   EVENT_VALUES.forEach((value, key) => {
     const sep = key.indexOf('\0');
@@ -1132,889 +873,149 @@ function replayEventValues() {
   });
 }
 const LOG_LEVELS = { 1: 'FATAL', 2: 'ERROR', 3: 'WARNING', 4: 'INFO', 5: 'DEBUG' };
+let eventsWs = null;
 function initEvents() {
-  eventsWs = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
-      + location.host + '/ws/events');
-  eventsWs.onopen = () => { setConn(true); };
+  eventsWs = new WebSocket(wsURL('/ws/events'));
+  eventsWs.onopen = () => setStore({ connected: true });
   eventsWs.onmessage = e => {
     let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
     if (ev.t === 'param') {
       patchParam(ev.dev, ev.param, ev.value);
-      if (/lamp$/.test(ev.param)) scheduleWidgetRender();
-      else scheduleRender();
+      if (/lamp$/.test(ev.param)) emitSoon(); else emit();
     } else if (ev.t === 'log') {
-      /* the rendered text repeats time/level/label — the chips cover those */
-      LOG.push({ t: new Date().toTimeString().slice(0, 8),
-                 lvl: LOG_LEVELS[ev.level] || 'INFO', src: ev.label,
-                 msg: ev.text.replace(/^\[[^\]]*\]\s*/, '') });
-      if (LOG.length > 500) LOG.shift();
-      renderLogs();
+      store.log.push({ t: new Date().toTimeString().slice(0, 8),
+        lvl: LOG_LEVELS[ev.level] || 'INFO', src: ev.label,
+        msg: ev.text.replace(/^\[[^\]]*\]\s*/, '') });
+      if (store.log.length > 500) store.log.shift();
+      emit();
     } else if (ev.t === 'state') {
-      if ('halt' in ev) busState.halted = ev.halt;
-      if ('init' in ev) busState.init = ev.init;
-      if ('halt' in ev || 'init' in ev) renderBus(false);
-      if ('dcok' in ev) $('#pill-dcok .dot').className = 'dot ' + (ev.dcok ? 'ok' : 'err');
-      if ('pok' in ev)  $('#pill-pok .dot').className  = 'dot ' + (ev.pok ? 'ok' : 'err');
-      (ev.leds || []).forEach((v, i) => {
-        const el = $('#hw-led' + i); if (el) el.classList.toggle('on', v);
-      });
-      (ev.switches || []).forEach((v, i) => {
-        const el = $('#hw-dip' + i); if (el) el.classList.toggle('on', v);
-      });
+      const hw = store.hw, bus = store.bus;
+      if ('halt' in ev) bus.halted = ev.halt;
+      if ('init' in ev) bus.init = ev.init;
+      if ('dcok' in ev) hw.dcok = ev.dcok;
+      if ('pok' in ev) hw.pok = ev.pok;
+      if (ev.leds) ev.leds.forEach((v, i) => hw.leds[i] = v);
+      if (ev.switches) ev.switches.forEach((v, i) => hw.dip[i] = v);
+      emit();
     }
   };
-  eventsWs.onclose = () => { setConn(false); setTimeout(initEvents, 2000); };
+  eventsWs.onclose = () => { setStore({ connected: false }); setTimeout(initEvents, 2000); };
 }
 
-/* ---------------- live terminals ---------------- */
-/* xterm.js at 80×24, no local echo, raw bytes both ways.
-   Three instances behind the tab bar:
-     slu0/slu1 — /ws/console/<n>, byte-transparent DL11 taps, shown only
-                 while the SLU device is enabled
-     serial    — a serial port local to the browser via the Web Serial
-                 API, for the real machine's console line             */
-let TERMS = null;   // key -> { el, term, ws? }
-let activeTermKey = 'slu0';
+/* ---------------- terminals: xterm.js + Web Serial ----------------
+   Three xterm instances live in module state and are appended into the
+   dashboard terminal host once it mounts; tabs toggle their display. */
+const COLS = 80, ROWS = 24;
+let TERMS = null, termHostEl = null, extWs = null;
+let serialPort = null, serialWriter = null, serialReader = null;
+const serialEncoder = new TextEncoder();
 
 function makeTermInstance() {
   const cs = getComputedStyle(document.documentElement);
   const phosphor = cs.getPropertyValue('--phosphor').trim() || '#7CE38B';
   const el = document.createElement('div');
   el.style.display = 'none';
-  termEl.appendChild(el);
+  termHostEl.appendChild(el);
   const term = new Terminal({
     cols: COLS, rows: ROWS, cursorBlink: true, scrollback: 1000,
-    fontFamily: cs.getPropertyValue('--font-mono').trim() || 'monospace',
-    fontSize: 14,
+    fontFamily: cs.getPropertyValue('--font-mono').trim() || 'monospace', fontSize: 14,
     theme: { background: cs.getPropertyValue('--term-bg').trim() || '#0B100C',
-             foreground: phosphor, cursor: phosphor },
-  });
+             foreground: phosphor, cursor: phosphor } });
   term.open(el);
   return { el, term };
 }
-
-function initLiveTerminal() {
+function initLiveTerminal(host) {
   if (TERMS || typeof Terminal === 'undefined') return;
-  termEl.innerHTML = '';
-  TERMS = {
-    slu0: makeTermInstance(),
-    slu1: makeTermInstance(),
-    serial: makeTermInstance(),
-  };
-  wireConsole('slu0', 0);
-  wireConsole('slu1', 1);
-  wireSerial();
-  updateTermTabs();
-  liveTab(activeTermKey);
+  termHostEl = host;
+  termHostEl.innerHTML = '';
+  TERMS = { slu0: makeTermInstance(), slu1: makeTermInstance(), serial: makeTermInstance() };
+  wireConsole('slu0', 0); wireConsole('slu1', 1); wireSerial();
+  setStore({ termReady: true });
+  // the default tab is an SLU that may be disabled; fall back to the console
+  const en0 = devEnabled('DL11'), en1 = devEnabled('DL11b');
+  const start = (store.activeTerm === 'slu0' && !en0) || (store.activeTerm === 'slu1' && !en1)
+    ? (en0 ? 'slu0' : en1 ? 'slu1' : 'serial') : store.activeTerm;
+  liveTab(start);
+  updateConsoleSource();
 }
-
 function wireConsole(key, n) {
   const t = TERMS[key];
-  t.term.onData(d => {
-    if (t.ws && t.ws.readyState === WebSocket.OPEN) t.ws.send(d);
-  });
+  t.term.onData(d => { if (t.ws && t.ws.readyState === WebSocket.OPEN) t.ws.send(d); });
   (function connect() {
-    t.ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
-        + location.host + '/ws/console/' + n);
+    t.ws = new WebSocket(wsURL('/ws/console/' + n));
     t.ws.binaryType = 'arraybuffer';
     t.ws.onmessage = e => t.term.write(new Uint8Array(e.data));
     t.ws.onclose = () => setTimeout(connect, 2000);
   })();
 }
-
-/* tab visibility follows the SLU devices' enabled state */
-function devEnabled(name) {
-  let found = false;
-  (function walk(list) { list.forEach(d => {
-    if (d.name === name && d.enabled) found = true;
-    walk(d.drives || []);
-  }); })(DEVMODEL);
-  return found;
-}
-function updateTermTabs() {
-  if (!TERMS) return;
-  /* a serial device's tab is shown only while the device is enabled; the
-     external console tab (#tab-serial) is always present */
-  $('.term-tabs').classList.add('ready'); // model known: safe to show the bar
-  const en0 = devEnabled('DL11'), en1 = devEnabled('DL11b');
-  $('#tab-slu0').style.display = en0 ? '' : 'none';
-  $('#tab-slu1').style.display = en1 ? '' : 'none';
-  if ((activeTermKey === 'slu0' && !en0) || (activeTermKey === 'slu1' && !en1))
-    liveTab(en0 ? 'slu0' : en1 ? 'slu1' : 'serial');
-}
 function liveTab(key) {
-  activeTermKey = key;
-  for (const k of Object.keys(TERMS))
-    TERMS[k].el.style.display = k === key ? '' : 'none';
-  $('#tab-slu0').classList.toggle('active', key === 'slu0');
-  $('#tab-slu1').classList.toggle('active', key === 'slu1');
-  $('#tab-serial').classList.toggle('active', key === 'serial');
-  $('#serial-bar').style.display = key === 'serial' ? 'flex' : 'none';
+  store.activeTerm = key;
+  for (const k of Object.keys(TERMS)) TERMS[k].el.style.display = k === key ? '' : 'none';
   TERMS[key].term.focus();
+  emit();
 }
-
-/* ---------------- Web Serial: a browser-local port ---------------- */
-let serialPort = null, serialWriter = null, serialReader = null;
-const serialEncoder = new TextEncoder();
-
-function serialStatus(connected) {
-  $('#serial-connect').textContent = connected ? 'Disconnect' : 'Connect';
-  $('#serial-baud').disabled = connected;
-}
-
-async function serialConnect() {
+function extConsoleDisconnectWs() { if (extWs) { try { extWs.close(); } catch (e) {} extWs = null; } }
+function wireExtConsoleWs() {
   const t = TERMS.serial;
-  const baudRate = parseInt($('#serial-baud').value, 10);
+  extConsoleDisconnectWs();
+  (function connect() {
+    if ((store.settings.external_console || {}).source !== 'ttys2') return;
+    extWs = new WebSocket(wsURL('/ws/console/ext'));
+    extWs.binaryType = 'arraybuffer';
+    extWs.onmessage = e => t.term.write(new Uint8Array(e.data));
+    extWs.onclose = () => { extWs = null;
+      if ((store.settings.external_console || {}).source === 'ttys2') setTimeout(connect, 2000); };
+  })();
+}
+function updateConsoleSource() {
+  if (!TERMS) return;
+  const src = (store.settings.external_console || {}).source || 'off';
+  if (serialPort) serialDisconnect();
+  extConsoleDisconnectWs();
+  if (src === 'ttys2') wireExtConsoleWs();
+  emit();
+}
+async function serialConnect(baudRate) {
+  const t = TERMS.serial;
   let port;
-  try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate });
-  } catch (e) {
-    if (e.name !== 'NotFoundError') // NotFoundError = picker dismissed
-      toast('serial', 'cannot open port: ' + e.message);
-    return;
-  }
-  serialPort = port;
-  serialWriter = port.writable.getWriter();
+  try { port = await navigator.serial.requestPort(); await port.open({ baudRate }); }
+  catch (e) { if (e.name !== 'NotFoundError') toast('serial', 'cannot open port: ' + e.message); return; }
+  serialPort = port; serialWriter = port.writable.getWriter();
   localStorage.setItem('webserial.baud', String(baudRate));
-  serialStatus(true);
-  toast('serial', 'connected at ' + baudRate + ' baud');
+  emit(); toast('serial', 'connected at ' + baudRate + ' baud');
   try {
     while (port.readable) {
       serialReader = port.readable.getReader();
-      try {
-        while (true) {
-          const { value, done } = await serialReader.read();
-          if (done) break;
-          if (value) t.term.write(value);
-        }
-      } finally {
-        serialReader.releaseLock();
-        serialReader = null;
-      }
+      try { while (true) { const { value, done } = await serialReader.read();
+        if (done) break; if (value) t.term.write(value); } }
+      finally { serialReader.releaseLock(); serialReader = null; }
     }
-  } catch (e) {
-    toast('serial', 'read error: ' + e.message);
-  }
+  } catch (e) { toast('serial', 'read error: ' + e.message); }
   await serialDisconnect();
 }
-
 async function serialDisconnect() {
   if (!serialPort) return;
-  const port = serialPort;
-  serialPort = null;
+  const port = serialPort; serialPort = null;
   try { if (serialReader) await serialReader.cancel(); } catch (e) {}
   try { if (serialWriter) { serialWriter.releaseLock(); serialWriter = null; } } catch (e) {}
   try { await port.close(); } catch (e) {}
-  serialStatus(false);
-  toast('serial', 'disconnected');
+  emit(); toast('serial', 'disconnected');
 }
-
 function wireSerial() {
   const t = TERMS.serial;
-  /* keystrokes route to whichever transport the current source uses */
   t.term.onData(d => {
-    if ((SETTINGS.external_console || {}).source === 'ttys2') {
+    if ((store.settings.external_console || {}).source === 'ttys2') {
       if (extWs && extWs.readyState === WebSocket.OPEN) extWs.send(d);
-    } else if (serialWriter) {
-      serialWriter.write(serialEncoder.encode(d));
-    }
-  });
-  $('#serial-connect').addEventListener('click', () => {
-    if (!('serial' in navigator)) return;
-    if (serialPort) serialDisconnect(); else serialConnect();
+    } else if (serialWriter) serialWriter.write(serialEncoder.encode(d));
   });
   if ('serial' in navigator)
     navigator.serial.addEventListener('disconnect', e => {
-      if (serialPort && e.target === serialPort) serialDisconnect();
-    });
-  updateConsoleSource();
+      if (serialPort && e.target === serialPort) serialDisconnect(); });
 }
 
-/* log lines arrive on /ws/events; the page keeps the last 500 */
-const LOG = [];
-
-/* ============================================================ */
-const $ = (sel, el) => (el || document).querySelector(sel);
-const $$ = (sel, el) => Array.from((el || document).querySelectorAll(sel));
-const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-/* toasts — show the injected menu command for every action */
-function toast(cmd, msg) {
-  const host = $('#toasts');
-  const el = document.createElement('div');
-  el.className = 'toast';
-  el.innerHTML = (cmd ? '<div class="cmd">&gt; ' + esc(cmd) + '</div>' : '') +
-                 (msg ? '<div class="msg">' + esc(msg) + '</div>' : '');
-  host.appendChild(el);
-  setTimeout(() => el.remove(), 3600);
-}
-/* ------------------- navigation ------------------- */
-const PAGES = [
-  ['dashboard','Dashboard'], ['devices','Devices'], ['storage','Storage'],
-  ['configurations','Configurations'], ['machine','Machine'], ['log','Log'],
-];
-function renderDevChips() {
-  const el = $('#tile-devchips');
-  if (!el) return; /* the dashboard tile was removed; kept for any future host */
-  const names = [];
-  (function walk(list) { list.forEach(d => { if (d.enabled) names.push(d.name); walk(d.drives || []); }); })(DEVMODEL);
-  el.innerHTML = names.map(n => '<span class="chip ok">' + n + '</span>').join('');
-}
-function renderNav() {
-  $('#nav').innerHTML = PAGES.map(([id, label]) =>
-    '<button data-nav="' + id + '"><span>' + label + '</span></button>').join('');
-}
-function show(pageId) {
-  $$('.page').forEach(p => p.classList.toggle('active', p.dataset.page === pageId));
-  $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.nav === pageId));
-  $('#page-title').textContent = PAGES.find(p => p[0] === pageId)[1];
-  if (pageId === 'storage') refreshImages().catch(() => {});
-  if (pageId === 'configurations') refreshConfigs().catch(() => {});
-  if (pageId === 'machine') refreshSettings().catch(() => {});
-}
-document.addEventListener('click', e => {
-  const n = e.target.closest('[data-nav]');   if (n) show(n.dataset.nav);
-  const g = e.target.closest('[data-goto]');  if (g) show(g.dataset.goto);
-});
-
-/* ------------------- devices page ------------------- */
-function paramRow(dev, p) {
-  const short = p.s && p.s !== p.n ? ' <span class="p-short">(' + esc(p.s) + ')</span>' : '';
-  let ctl;
-  if (p.n === 'image' && p.ro) {
-    // a drive locks its image while the pack spins
-    ctl = '<span class="ro" title="' + esc(p.v) + '">' +
-      (p.v ? esc(imageLabel(p.v)) : 'no image') + '</span>';
-  } else if (p.n === 'image') {
-    // the medium is chosen from the images the interface manages, by name
-    ctl = '<button class="imgfield mono" data-img-pick="' + esc(dev) +
-      '" data-img-now="' + esc(p.v) + '" title="' + esc(p.v || 'no image') + '">' +
-      (p.v ? esc(imageLabel(p.v)) : '<span class="muted">no image</span>') + '</button>';
-  } else if (p.ro) {
-    ctl = '<span class="ro">' + (p.t === 'oct' ? '<span class="octal"></span>' : '') + esc(p.v) + '</span>';
-  } else if (p.t === 'enum') {
-    ctl = '<select data-dev="' + dev + '" data-param="' + esc(p.s || p.n) + '">' +
-      p.opts.map(o => '<option' + (o === p.v ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
-  } else {
-    ctl = '<input type="text" value="' + esc(p.v) + '" data-dev="' + dev + '" data-param="' + esc(p.s || p.n) + '">';
-  }
-  const unit = p.u ? '<span class="unit">' + esc(p.u) + '</span>' : '';
-  return '<div class="p-name">' + esc(p.n) + short + '</div>' +
-         '<div class="p-val">' + ctl + unit + '</div>' +
-         '<div class="p-info">' + esc(p.i) + '</div>';
-}
-function driveRow(d) {
-  return '<div class="dev-sub">' +
-    '<span class="act-led' + (d.activity ? ' on' : '') + '" title="activity"></span>' +
-    '<span class="devname">' + d.name + '</span>' +
-    '<span class="muted" style="font-size:var(--fs-1)">' + d.type + '</span>' +
-    /* the image slot only applies to drives */
-    (!d.params.some(p => p.n === 'image') ? '' :
-      (d.img ? '<span class="imgpath" title="' + esc(d.img) + '">' + esc(imageLabel(d.img)) + '</span>'
-             : '<span class="imgpath" style="color:var(--ink-faint)">no image attached</span>')) +
-    '<span class="spacer"></span>' +
-    '<span class="chip ' + (d.enabled ? 'ok">enabled' : 'off">disabled') + '</span>' +
-    '<label class="toggle"><input type="checkbox" data-endev="' + d.name + '"' + (d.enabled ? ' checked' : '') + '><span class="slider"></span></label>' +
-    '<button class="btn small" data-params="' + d.name + '">Parameters</button>' +
-    '</div>' +
-    '<div class="params" data-paramsbox="' + d.name + '" hidden><div class="p-grid">' +
-      d.params.map(p => paramRow(d.name, p)).join('') + '</div></div>';
-}
-function renderDevices() {
-  $('#device-list').innerHTML = DEVMODEL.map(c =>
-    '<div class="card dev-card">' +
-      '<div class="card-head dev-head">' +
-        '<span class="devname">' + c.name + '</span>' +
-        '<span class="devtype">' + c.type + (c.info ? ' — ' + esc(c.info) : '') + '</span>' +
-        '<span class="pill addr octal mono">' + (c.params.find(p => p.n === 'base_addr') || {v:'—'}).v + '</span>' +
-        '<span class="chip ' + (c.enabled ? 'ok">enabled' : 'off">disabled') + '</span>' +
-        '<label class="toggle"><input type="checkbox" data-endev="' + c.name + '"' + (c.enabled ? ' checked' : '') + '><span class="slider"></span></label>' +
-        '<button class="btn small" data-params="' + c.name + '">Parameters</button>' +
-      '</div>' +
-      '<div class="params" data-paramsbox="' + c.name + '" hidden><div class="p-grid">' +
-        c.params.map(p => paramRow(c.name, p)).join('') + '</div></div>' +
-      /* drives are reachable only through an enabled controller */
-      (c.enabled ? (c.drives || []).map(driveRow).join('') : '') +
-    '</div>').join('');
-}
-document.addEventListener('click', e => {
-  const pb = e.target.closest('[data-params]');
-  if (pb) {
-    const box = $('[data-paramsbox="' + pb.dataset.params + '"]');
-    box.hidden = !box.hidden;
-  }
-});
-document.addEventListener('change', e => {
-  const t = e.target;
-  if (t.matches('[data-endev]')) {
-    const name = t.dataset.endev, on = t.checked;
-    liveSetParam(name, 'enabled', on ? '1' : '0',
-      on ? 'device enabled — registers installed on the bus' : 'device disabled');
-  }
-  if (t.matches('[data-param]'))
-    liveSetParam(t.dataset.dev, t.dataset.param, t.value, 'parameter set');
-});
-
-/* ------------------- storage page: /api/images ------------------- */
-let IMAGESLIVE = [];
-function humanSize(n) {
-  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
-  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
-  return n + ' B';
-}
-async function refreshImages() {
-  const r = await fetch('/api/images');
-  if (!r.ok) throw new Error('images fetch failed');
-  IMAGESLIVE = await r.json();
-  renderImages();
-}
-/* Where an image is used: the configurations that name it, as
-   <configuration>:<drive>, and separately the drive holding it right now.
-   The live mount is what makes a file busy, so it is worth its own mark. */
-function imageUsage(im) {
-  const parts = (im.used || []).map(u =>
-    '<span class="chip out mono" title="named by a saved configuration">' +
-      esc(u.config) + ':' + esc(u.device) + '</span>');
-  (im.attached || []).forEach(d => parts.push(
-    '<span class="chip ok mono" title="mounted on this drive now">' +
-      esc(d) + ' mounted</span>'));
-  return parts.length ? parts.join(' ') : '<span class="muted">—</span>';
-}
-/* Storage manages the files themselves. Which drive starts with which image
-   belongs to a configuration, and the front panel swaps a medium on a
-   running drive. */
-function renderImages() {
-  $('#image-table tbody').innerHTML = IMAGESLIVE.map(im =>
-    '<tr>' +
-      '<td class="mono">' + esc(im.name) + '</td>' +
-      '<td class="mono">' + humanSize(im.size) + '</td>' +
-      '<td>' + imageUsage(im) + '</td>' +
-      '<td class="muted mono" style="font-size:var(--fs-0)">' + esc(im.mtime) + '</td>' +
-      '<td style="text-align:right; white-space:nowrap">' +
-        '<a class="btn small" href="/api/images/' + encodeURIComponent(im.name) + '" download>Download</a> ' +
-        '<button class="btn small" data-img-del="' + esc(im.name) + '">Delete</button>' +
-      '</td>' +
-    '</tr>').join('') ||
-    '<tr><td colspan="5" class="muted">No images yet — drop a disk image above to upload it.</td></tr>';
-}
-document.addEventListener('click', e => {
-  const del = e.target.closest('[data-img-del]');
-  if (del) {
-    if (del.dataset.confirmed !== '1') {
-      del.dataset.confirmed = '1';
-      del.textContent = 'Confirm delete';
-      setTimeout(() => { del.dataset.confirmed = ''; del.textContent = 'Delete'; }, 3000);
-      return;
-    }
-    fetch('/api/images/' + encodeURIComponent(del.dataset.imgDel), { method: 'DELETE' })
-      .then(async r => {
-        const data = await r.json().catch(() => ({}));
-        toast('DELETE /api/images/' + del.dataset.imgDel,
-            r.ok ? 'image deleted' : (data.error || 'delete failed'));
-        refreshImages().catch(() => {});
-      });
-  }
-  if (e.target.closest('#dropzone')) $('#img-file').click();
-});
-function uploadImage(file) {
-  const dz = $('#dropzone');
-  const form = new FormData();
-  form.append('file', file, file.name);
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/images');
-  xhr.upload.onprogress = ev => {
-    if (ev.lengthComputable)
-      dz.textContent = 'Uploading ' + file.name + ' — ' + Math.round(100 * ev.loaded / ev.total) + '%';
-  };
-  xhr.onload = () => {
-    dz.textContent = xhr.status === 200
-        ? 'Uploaded ' + file.name : 'Upload failed: ' + xhr.responseText;
-    toast('POST /api/images', xhr.status === 200 ? file.name + ' uploaded' : 'upload failed');
-    refreshImages().catch(() => {});
-  };
-  xhr.onerror = () => { dz.textContent = 'Upload failed.'; };
-  xhr.send(form);
-}
-const dropzoneEl = $('#dropzone');
-dropzoneEl.addEventListener('dragover', e => { e.preventDefault(); });
-dropzoneEl.addEventListener('drop', e => {
-  e.preventDefault();
-  if (e.dataTransfer.files.length) uploadImage(e.dataTransfer.files[0]);
-});
-$('#img-file').addEventListener('change', e => {
-  if (e.target.files.length) uploadImage(e.target.files[0]);
-  e.target.value = '';
-});
-
-/* ------------------- console ------------------- */
-/* The terminal is xterm.js fed by the console WebSockets (see
-   initLiveTerminal); 80x24 matches the DL11 console the firmware expects.
-   Nothing is written to it locally - every character on screen came from
-   the host. */
-const COLS = 80, ROWS = 24;
-const termEl = $('#term');
-
-$('#tab-slu0').addEventListener('click', () => { if (TERMS) liveTab('slu0'); });
-$('#tab-slu1').addEventListener('click', () => { if (TERMS) liveTab('slu1'); });
-$('#tab-serial').addEventListener('click', () => { if (TERMS) liveTab('serial'); });
-
-/* A modal the caller awaits; resolves true only when the user confirms.
-   body is trusted markup built by the caller, which escapes what it inserts. */
-function confirmModal(title, body, confirmLabel) {
-  return new Promise(resolve => {
-    const host = document.createElement('div');
-    host.className = 'modal-overlay';
-    host.innerHTML =
-      '<div class="card modal-card">' +
-        '<div class="card-head"><h3>' + esc(title) + '</h3>' +
-          '<button class="modal-close" data-cm-no aria-label="Close" title="Close">&times;</button></div>' +
-        '<div class="card-body">' +
-          '<p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' + body + '</p>' +
-          '<div style="display:flex; gap:8px; justify-content:flex-end">' +
-            '<button class="btn" data-cm-no>Cancel</button>' +
-            '<button class="btn danger" data-cm-yes>' + esc(confirmLabel) + '</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    const done = v => {
-      host.remove();
-      document.removeEventListener('keydown', onKey);
-      resolve(v);
-    };
-    function onKey(ev) { if (ev.key === 'Escape') done(false); }
-    host.addEventListener('click', ev => {
-      if (ev.target === host || ev.target.closest('[data-cm-no]')) done(false);
-      else if (ev.target.closest('[data-cm-yes]')) done(true);
-    });
-    document.addEventListener('keydown', onKey);
-    document.body.appendChild(host);
-    host.querySelector('[data-cm-yes]').focus();
-  });
-}
-
-/* ---------------- admin password: /api/auth ---------------- */
-/* A board with no password set answers every request, which is what makes it
-   reachable the first time. The dialog below is what closes that window: it
-   has no cancel, and it stays until the password is accepted. Once one is
-   set the browser's own basic-auth prompt carries it from then on. */
-
-async function checkAuth() {
-  const r = await fetch('/api/auth');
-  if (!r.ok) return;
-  const auth = await r.json();
-  if (auth.configured) return;
-  await setPasswordModal(auth.min_length || 8);
-}
-
-function setPasswordModal(minLength) {
-  return new Promise(resolve => {
-    const host = document.createElement('div');
-    host.className = 'modal-overlay';
-    host.innerHTML =
-      '<div class="card modal-card">' +
-        '<div class="card-head"><h3>Set an admin password</h3></div>' +
-        '<div class="card-body">' +
-          '<p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' +
-            'This interface controls the machine and is open to anyone who can ' +
-            'reach it until a password is set. At least ' + minLength +
-            ' characters. Any user name is accepted when the browser asks.' +
-          '</p>' +
-          '<div class="set-grid">' +
-            '<label class="set-name" for="pw1">Password</label>' +
-            '<input class="set-val" id="pw1" type="password" autocomplete="new-password">' +
-            '<label class="set-name" for="pw2">Repeat</label>' +
-            '<input class="set-val" id="pw2" type="password" autocomplete="new-password">' +
-          '</div>' +
-          '<p id="pw-err" class="muted" style="margin:12px 0 0; font-size:var(--fs-1); color:var(--danger); min-height:1.2em"></p>' +
-          '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px">' +
-            '<button class="btn primary" data-pw-set>Set password</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    const err = msg => { host.querySelector('#pw-err').textContent = msg || ''; };
-    async function submit() {
-      const p1 = host.querySelector('#pw1').value;
-      const p2 = host.querySelector('#pw2').value;
-      if (p1.length < minLength) return err('At least ' + minLength + ' characters.');
-      if (p1 !== p2) return err('The two entries do not match.');
-      err('');
-      let data = {};
-      let ok = false;
-      try {
-        const r = await fetch('/api/auth', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: p1 })
-        });
-        ok = r.ok;
-        data = await r.json().catch(() => ({}));
-      } catch (e) { /* fall through to the message below */ }
-      if (!ok) return err(data.error || 'The password could not be set.');
-      host.remove();
-      toast('auth', 'Admin password set');
-      resolve(true);
-    }
-    host.addEventListener('click', ev => {
-      if (ev.target.closest('[data-pw-set]')) submit();
-    });
-    host.addEventListener('keydown', ev => {
-      if (ev.key === 'Enter') submit();
-    });
-    document.body.appendChild(host);
-    host.querySelector('#pw1').focus();
-  });
-}
-
-/* ---------------- live configurations: /api/configs ---------------- */
-/* A configuration is a named JSON snapshot of the device setup (enabled
-   devices + writable parameter values), saved from and applied to the
-   live parameter system. */
-/* A snapshot reduced to a canonical string, so the live setup and a saved
-   file can be compared regardless of device or parameter order. Both sides
-   come from the same backend snapshot code, which already omits everything
-   at its construction default. */
-function cfgKey(snap) {
-  return ((snap || {}).devices || [])
-    .filter(d => d.enabled)
-    .map(d => {
-      const p = d.params || {};
-      return d.name + '{' + Object.keys(p).sort().map(k => k + '=' + p[k]).join(',') + '}';
-    })
-    .sort().join('|');
-}
-/* Which drives a configuration can carry a medium on. A saved snapshot names
-   only what differs from the defaults, so a drive with no image has no image
-   key — the live model is what says the drive takes one at all. */
-function cfgDriveNames() {
-  const out = [];
-  (function walk(list) { list.forEach(d => {
-    if (d.params && d.params.some(p => p.n === 'image')) out.push(d.name);
-    walk(d.drives || []);
-  }); })(DEVMODEL);
-  return out;
-}
-/* A configuration reads like the devices page: the devices it switches on,
-   each with the parameters it pins. Everything it does not name is switched
-   off and left at its default. The medium each drive starts with is the one
-   part edited here, since that is what the configuration decides. */
-function cfgDevicesHtml(cfgName, snap) {
-  const devs = ((snap || {}).devices || []).filter(d => d.enabled);
-  if (!devs.length)
-    return '<div class="muted" style="padding:10px 14px; font-size:var(--fs-1)">' +
-           'This configuration switches every device off.</div>';
-  const drives = cfgDriveNames();
-  return devs.map(d => {
-    const names = Object.keys(d.params || {}).sort().filter(n => n !== 'image');
-    const takesImage = drives.indexOf(d.name) !== -1;
-    const img = (d.params || {}).image || '';
-    const imgRow = !takesImage ? '' :
-      '<div class="p-name">image</div>' +
-      '<div class="p-val">' +
-        '<button class="btn small" data-cfg-img="' + esc(d.name) +
-          '" data-cfg-of="' + esc(cfgName) + '" data-cfg-now="' + esc(img) + '">' +
-          (img ? esc(imageLabel(img)) : 'no image') + ' · change…</button>' +
-      '</div>' +
-      '<div class="p-info">the medium this drive starts with</div>';
-    return '<div class="dev-sub">' +
-        '<span class="devname">' + esc(d.name) + '</span>' +
-        '<span class="spacer"></span>' +
-        '<span class="chip ok">enabled</span>' +
-      '</div>' +
-      '<div class="params">' + (names.length || imgRow
-        ? '<div class="p-grid">' + imgRow + names.map(n =>
-            '<div class="p-name">' + esc(n) + '</div>' +
-            '<div class="p-val"><span class="ro">' + esc(String(d.params[n])) + '</span></div>' +
-            '<div class="p-info"></div>'
-          ).join('') + '</div>'
-        : '<span class="muted" style="font-size:var(--fs-1)">all parameters at their defaults</span>') +
-      '</div>';
-  }).join('');
-}
-/* Set the medium a configuration gives a drive. The file changes; the running
-   machine does not, so a configuration can be prepared while another runs. */
-async function setConfigImage(cfgName, drive, current) {
-  const name = await pickImage('Image for ' + drive + ' in “' + cfgName + '”',
-      'No image — leave the drive empty', current);
-  if (name === null) return;
-  const r = await fetch('/api/configs/' + encodeURIComponent(cfgName) +
-      '/devices/' + encodeURIComponent(drive) + '/image', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: name }),
-  });
-  const data = await r.json().catch(() => ({}));
-  toast(cfgName + ':' + drive + ' = ' + (name || '""'),
-      r.ok ? 'configuration updated' : (data.error || 'rejected'));
-  await refreshConfigs().catch(() => {});
-  if (r.ok) openCfgViews.add(cfgName);
-  refreshImages().catch(() => {});
-}
-/* which configuration cards are expanded, so editing one does not collapse it */
-const openCfgViews = new Set();
-
-async function refreshConfigs() {
-  const r = await fetch('/api/configs');
-  if (!r.ok) throw new Error('configs fetch failed');
-  const configs = await r.json();
-  /* The live setup, and every saved snapshot, as canonical keys: the one that
-     matches is the configuration currently loaded. The machine can refuse the
-     snapshot while it is busy (503) — then nothing is claimed to be loaded and
-     saving stays offered, rather than guessing from an empty answer. */
-  let current = null;
-  try {
-    const cr = await fetch('/api/configs?current=1', { signal: AbortSignal.timeout(4000) });
-    if (cr.ok) current = await cr.json();
-  } catch (e) { /* busy or unreachable: leave it unknown */ }
-  const currentKey = current && cfgKey(current);
-  await Promise.all(configs.map(async c => {
-    c.snapshot = await fetch('/api/configs/' + encodeURIComponent(c.name),
-        { signal: AbortSignal.timeout(4000) }).then(x => x.json()).catch(() => null);
-    c.loaded = current != null && c.snapshot != null && cfgKey(c.snapshot) === currentKey;
-  }));
-  /* saving only makes sense while the setup differs from every snapshot */
-  const alreadySaved = configs.some(c => c.loaded);
-  $('#cfg-list').innerHTML =
-    (alreadySaved ? '' :
-    '<div class="card cfg-row">' +
-      '<div class="card-head">' +
-        '<h3>Save current setup</h3>' +
-        '<span style="margin-left:auto; display:flex; gap:8px">' +
-          '<input type="text" id="cfg-name" placeholder="configuration name" class="mono" ' +
-            'style="background:var(--bg-input, transparent); border:1px solid var(--line); border-radius:6px; padding:4px 8px; color:inherit">' +
-          '<button class="btn small primary" id="cfg-save">Save</button>' +
-        '</span>' +
-      '</div>' +
-    '</div>') +
-    configs.map(c =>
-      '<div class="card cfg-row">' +
-        '<div class="card-head">' +
-          '<h3>' + esc(c.name) + '</h3>' +
-          '<span class="muted" style="font-size:var(--fs-0)">' + esc(c.mtime) + '</span>' +
-          (c.loaded ? '<span class="chip ok">loaded</span>' : '') +
-          (c.enabled || []).map(d => '<span class="chip out">' + esc(d) + '</span>').join(' ') +
-          '<span style="margin-left:auto; display:flex; gap:8px">' +
-            '<button class="btn small" data-cfg-view="' + esc(c.name) + '">View</button>' +
-            '<button class="btn small primary" data-cfg-apply="' + esc(c.name) + '"' +
-              (c.loaded ? ' disabled title="already loaded"' : '') + '>Apply</button>' +
-            '<button class="btn small" data-cfg-del="' + esc(c.name) + '">Delete</button>' +
-          '</span>' +
-        '</div>' +
-        '<div class="cfg-devs" data-cfg-devs="' + esc(c.name) + '"' +
-          (openCfgViews.has(c.name) ? '' : ' hidden') + '>' +
-          cfgDevicesHtml(c.name, c.snapshot) + '</div>' +
-      '</div>').join('');
-  if (!configs.length)
-    $('#cfg-list').innerHTML += '<div class="muted" style="padding:8px">No saved configurations yet.</div>';
-}
-document.addEventListener('click', async e => {
-  if (e.target.closest('#cfg-save')) {
-    const name = $('#cfg-name').value.trim();
-    if (!name) { toast('PUT /api/configs/…', 'enter a configuration name first'); return; }
-    const r = await fetch('/api/configs/' + encodeURIComponent(name), { method: 'PUT' });
-    toast('PUT /api/configs/' + name, r.ok ? 'current setup saved' : 'save failed');
-    refreshConfigs().catch(() => {});
-  }
-  const v = e.target.closest('[data-cfg-view]');
-  if (v) {
-    const name = v.dataset.cfgView;
-    const el = document.querySelector('[data-cfg-devs="' + CSS.escape(name) + '"]');
-    el.hidden = !el.hidden;
-    if (el.hidden) openCfgViews.delete(name); else openCfgViews.add(name);
-  }
-  const ci = e.target.closest('[data-cfg-img]');
-  if (ci) setConfigImage(ci.dataset.cfgOf, ci.dataset.cfgImg, ci.dataset.cfgNow);
-  const a = e.target.closest('[data-cfg-apply]');
-  if (a && !a.disabled) {
-    const name = a.dataset.cfgApply;
-    /* applying rewrites the whole device setup, so a machine that is running
-       loses whatever it was doing */
-    if (!busState.halted && !await confirmModal(
-          'Apply while the PDP-11 is running?',
-          'The CPU is running. Applying <b>' + esc(name) + '</b> reconfigures every ' +
-          'device — drives are detached and reattached, and the running system will ' +
-          'not survive it.', 'Apply anyway'))
-      return;
-    const r = await fetch('/api/configs/' + encodeURIComponent(name) + '/apply', { method: 'POST' });
-    const data = await r.json().catch(() => ({}));
-    toast('POST /api/configs/' + name + '/apply',
-        r.ok && data.ok ? 'configuration applied'
-        : 'applied with rejections: ' + ((data.errors || []).join('; ') || 'request failed'));
-    refreshDevices().catch(() => {});
-    refreshConfigs().catch(() => {});
-  }
-  const d = e.target.closest('[data-cfg-del]');
-  if (d) {
-    if (d.dataset.confirmed !== '1') {
-      d.dataset.confirmed = '1';
-      d.textContent = 'Confirm delete';
-      setTimeout(() => { d.dataset.confirmed = ''; d.textContent = 'Delete'; }, 3000);
-      return;
-    }
-    const r = await fetch('/api/configs/' + encodeURIComponent(d.dataset.cfgDel), { method: 'DELETE' });
-    toast('DELETE /api/configs/' + d.dataset.cfgDel, r.ok ? 'configuration deleted' : 'delete failed');
-    refreshConfigs().catch(() => {});
-  }
-});
-
-/* ------------------- diagnostics page ------------------- */
-const activeLevels = new Set(['ERROR', 'WARNING', 'INFO']);
-function logLine(l) {
-  const cls = { FATAL:'err', ERROR:'err', WARNING:'warn', INFO:'ok', DEBUG:'off' }[l.lvl];
-  return '<div style="padding:3px 0; border-bottom:1px solid var(--line-soft)">' +
-    '<span class="muted">' + l.t + '</span> ' +
-    '<span class="chip ' + cls + '">' + l.lvl.toLowerCase() + '</span> ' +
-    '<span style="color:var(--accent)">' + l.src + '</span> ' + esc(l.msg) + '</div>';
-}
-function renderLogs() {
-  const rows = LOG.filter(l => activeLevels.has(l.lvl));
-  $('#diag-log').innerHTML = rows.map(logLine).join('');
-}
-$('#log-filters').addEventListener('click', e => {
-  const c = e.target.closest('[data-lvl]'); if (!c) return;
-  const lvl = c.dataset.lvl;
-  if (activeLevels.has(lvl)) activeLevels.delete(lvl); else activeLevels.add(lvl);
-  c.classList.toggle('inactive', !activeLevels.has(lvl));
-  renderLogs();
-});
-/* ------------------- dashboard device widgets ------------------- */
-/* Each enabled device gets a widget chosen by its class (category),
-   overridable per model. Controllers and "other" devices show nothing;
-   serial devices appear as terminal tabs, not grid cards. */
-function catOf(d) { return d.category || 'other'; }
-function lampOn(d, n) { const p = (d.params || []).find(q => q.n === n); return p && p.v === '1'; }
-function paramVal(d, n) { const p = (d.params || []).find(q => q.n === n); return p ? p.v : ''; }
-
-/* removable-media state. removable/locked come from the backend; for RL the
-   door is unlocked exactly while the LOAD lamp is lit (spun down), which the
-   /ws/events stream keeps live, so read that when present. */
-function driveRemovable(d) { return d.removable === true; }
-function driveLocked(d) {
-  // a drive locks its image parameter while the medium cannot be swapped
-  // (the RL does this while the pack spins, and releases it in LOAD and
-  // power-off); otherwise fall back to the host lock flag
-  const img = (d.params || []).find(p => p.n === 'image');
-  if (img && img.ro) return true;
-  return lampOn(d, 'lock') || d.locked === true;
-}
-function lockTag(d) {
-  if (!driveRemovable(d)) return '<span class="w-tag fixed">fixed</span>';
-  return driveLocked(d)
-    ? '<span class="w-tag locked" title="host holds the medium locked">🔒 locked</span>'
-    : '<span class="w-tag unlocked" title="medium can be changed">🔓 removable</span>';
-}
-/* image line; on a removable, unlocked drive it is a button opening the picker */
-function swapAffordance(d, cls) {
-  const img = d.img || paramVal(d, 'image');
-  // the widget is narrow: show the file, keep the path in the tooltip
-  const txt = img ? esc(imageLabel(img)) : 'no image';
-  const tip = img ? ' title="' + esc(img) + '"' : '';
-  if (driveRemovable(d) && !driveLocked(d))
-    return '<button class="' + cls + ' swap mono" data-swap="' + esc(d.name) +
-           '" data-swap-now="' + esc(img) + '"' +
-           (tip || ' title="change image"') + '>' + txt + ' · change…</button>';
-  return '<div class="' + cls + ' mono"' + tip + '>' + txt + '</div>';
-}
-
-/* model override: RL01/RL02 physical bezel; the lamps follow the drive's
-   lamp parameters and the buttons drive runstop/writeprotect */
-function rlWidget(d) {
-  const unit = paramVal(d, 'unit') || d.name.replace(/\D/g, '');
-  const load  = lampOn(d, 'loadlamp');
-  const ready = lampOn(d, 'readylamp');
-  const fault = lampOn(d, 'faultlamp');
-  const wp    = lampOn(d, 'writeprotectlamp');
-  /* the unit number is on the READY cap, as on the drive */
-  return '<div class="rlpanel">' +
-    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
-    '<div class="lamps">' +
-      '<button class="lampbtn cap-yellow' + (load ? ' lit' : '') + '" data-rl-load="' + esc(d.name) + '">LOAD</button>' +
-      '<button class="lampbtn cap-white' + (ready ? ' lit' : '') + '" disabled><span class="num">' + esc(unit) + '</span>READY</button>' +
-      '<button class="lampbtn cap-red' + (fault ? ' lit' : '') + '" disabled>FAULT</button>' +
-      '<button class="lampbtn cap-orange' + (wp ? ' lit' : '') + '" data-rl-wp="' + esc(d.name) + '">WRITE<br>PROT</button>' +
-    '</div>' +
-    '<div class="rl-foot">' + lockTag(d) + swapAffordance(d, 'rl-img') + '</div>' +
-    '</div>';
-}
-/* every widget wears the same bezel: a label, a recessed plate of switch caps,
-   and a foot carrying the medium */
-function cap(cls, lit, body, attrs) {
-  return '<button class="lampbtn ' + cls + (lit ? ' lit' : '') + '"' + (attrs || ' disabled') +
-         '>' + body + '</button>';
-}
-/* unit is carried by the READY cap, so the label names only the model */
-function panel(d, unit, caps, foot, panelCls) {
-  return '<div class="rlpanel' + (panelCls ? ' ' + panelCls : '') + '">' +
-    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
-    '<div class="lamps">' + caps + '</div>' +
-    '<div class="rl-foot">' + foot + '</div>' +
-    '</div>';
-}
-function unitOf(d) { return paramVal(d, 'unit') || d.name.replace(/\D/g, ''); }
-function readyCap(unit, lit, wide) {
-  return cap('cap-white' + (wide ? ' wide' : ''), lit,
-             '<span class="num">' + esc(unit) + '</span>' +
-             (wide ? '<span class="rdy">READY</span>' : 'READY'));
-}
-
-/* model override: RA81 front bezel. The drive spins as soon as a medium is
-   mounted, so RUN/STOP and READY follow the image; READY drops while the
-   drive is accessed, the way the real lamp flickers under load. WRITE PROT
-   and the FAULT cap latch in the page — the MSCP emulation carries no state
-   for them. The RA81 is dual-ported and this emulation serves port A. */
-const RA81_SWITCHES = new Map();
-function ra81Switches(name) {
-  if (!RA81_SWITCHES.has(name))
-    RA81_SWITCHES.set(name, { wp: false, fault: false });
-  return RA81_SWITCHES.get(name);
-}
-function ra81Widget(d) {
-  const unit = unitOf(d), sw = ra81Switches(d.name);
-  const mounted = !!(d.img || paramVal(d, 'image'));
-  const active = lampOn(d, 'accesslamp');
-  const ready = mounted && !active;
-  const push = k => ' data-ra-sw="' + k + '" data-ra-dev="' + esc(d.name) + '"';
-  return panel(d, unit,
-    cap('cap-yellow', mounted, 'RUN<br>STOP') +
-    cap('cap-red', sw.fault, 'FAULT', ' data-ra-fault="' + esc(d.name) + '"') +
-    readyCap(unit, ready, /*wide*/ true) +
-    cap('cap-yellow', sw.wp, 'WRITE<br>PROT', push('wp')) +
-    cap('cap-white legend-lg', true, 'A') +
-    cap('cap-white legend-lg', false, 'B'),
-    lockTag(d) + swapAffordance(d, 'rl-img'), 'span2');
-}
-/* class default: disk */
-function diskWidget(d) {
-  const active = lampOn(d, 'accesslamp');
-  const unit = unitOf(d);
-  return panel(d, unit,
-    readyCap(unit, d.enabled && !active) +
-    cap('cap-yellow', active, 'ACCESS'),
-    lockTag(d) + swapAffordance(d, 'rl-img'), 'span2');
-}
-/* class default: network */
-function networkWidget(d) {
-  const iface = paramVal(d, 'interface'), mac = paramVal(d, 'mac');
-  const info = (iface ? esc(iface) : '&mdash;') + ' · ' + (mac ? esc(mac) : '&mdash;');
-  return panel(d, '',
-    cap('cap-white', d.enabled, 'LINK') +
-    cap('cap-yellow', lampOn(d, 'activitylamp'), 'ACT'),
-    '<div class="rl-info">' + info + '</div>');
-}
-/* class default: tape (registered; no tape device exists yet) */
-function tapeWidget(d) {
-  return panel(d, unitOf(d), cap('cap-white', d.enabled, 'TAPE'), '');
-}
-
-/* ---- VCB01 framebuffer, streamed over /ws/vcb01 ----
-   The board's picture arrives as one full frame on connect, then only the
-   screen-line runs that change. It is kept in an offscreen canvas that
-   survives the widget grid being rebuilt, and blitted into the widget's
-   canvas whenever a frame arrives or the widget is redrawn. */
+/* ---------------- VCB01 framebuffer: /ws/vcb01 ---------------- */
 const VCB01D = { ws: null, off: null, w: 0, h: 0 };
-function vcb01Off() {
-  if (!VCB01D.off) VCB01D.off = document.createElement('canvas');
-  return VCB01D.off;
-}
+function vcb01Off() { if (!VCB01D.off) VCB01D.off = document.createElement('canvas'); return VCB01D.off; }
 function vcb01DrawRows(first, count, bytes, boff) {
   const w = VCB01D.w, stride = w >> 3;
   const ctx = vcb01Off().getContext('2d');
@@ -2035,45 +1036,37 @@ function vcb01Blit() {
 }
 function vcb01Connect() {
   if (VCB01D.ws && VCB01D.ws.readyState <= WebSocket.OPEN) return;
-  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
-      + location.host + '/ws/vcb01');
+  const ws = new WebSocket(wsURL('/ws/vcb01'));
   ws.binaryType = 'arraybuffer';
   ws.onmessage = ev => {
     const b = new Uint8Array(ev.data);
-    if (b[0] === 1) {                                  /* full frame */
-      VCB01D.w = (b[1] << 8) | b[2]; VCB01D.h = (b[3] << 8) | b[4];
-      vcb01Off().width = VCB01D.w; vcb01Off().height = VCB01D.h;
-      vcb01DrawRows(0, VCB01D.h, b, 5);
-    } else if (b[0] === 2 && VCB01D.w) {               /* changed span */
-      vcb01DrawRows((b[1] << 8) | b[2], (b[3] << 8) | b[4], b, 5);
-    } else return;
+    if (b[0] === 1) { VCB01D.w = (b[1] << 8) | b[2]; VCB01D.h = (b[3] << 8) | b[4];
+      vcb01Off().width = VCB01D.w; vcb01Off().height = VCB01D.h; vcb01DrawRows(0, VCB01D.h, b, 5); }
+    else if (b[0] === 2 && VCB01D.w) vcb01DrawRows((b[1] << 8) | b[2], (b[3] << 8) | b[4], b, 5);
+    else return;
     vcb01Blit();
   };
   ws.onclose = () => { VCB01D.ws = null; };
   VCB01D.ws = ws;
 }
-/* keyboard: browser event.code -> the X keysym the LK201 model understands */
+function vcb01Disconnect() { if (VCB01D.ws) { VCB01D.ws.close(); VCB01D.ws = null; } }
 const VCB01_KEYSYM = (() => {
   const m = {};
-  for (let c = 65; c <= 90; c++) m['Key' + String.fromCharCode(c)] = c + 32;   /* a-z */
+  for (let c = 65; c <= 90; c++) m['Key' + String.fromCharCode(c)] = c + 32;
   for (let n = 0; n <= 9; n++) m['Digit' + n] = 0x30 + n;
   Object.assign(m, {
     Space: 0x20, Enter: 0xFF0D, Tab: 0xFF09, Backspace: 0xFF08, Delete: 0xFFFF,
     Semicolon: 0x3B, Equal: 0x3D, Comma: 0x2C, Minus: 0x2D, Period: 0x2E, Slash: 0x2F,
     Quote: 0x27, BracketLeft: 0x5B, BracketRight: 0x5D, Backslash: 0x5C, Backquote: 0x60,
     ShiftLeft: 0xFFE1, ShiftRight: 0xFFE2, ControlLeft: 0xFFE3, ControlRight: 0xFFE4,
-    CapsLock: 0xFFE5, ArrowLeft: 0xFF51, ArrowUp: 0xFF52, ArrowRight: 0xFF53, ArrowDown: 0xFF54,
-  });
+    CapsLock: 0xFFE5, ArrowLeft: 0xFF51, ArrowUp: 0xFF52, ArrowRight: 0xFF53, ArrowDown: 0xFF54 });
   return m;
 })();
-function vcb01Send(bytes) {
-  const ws = VCB01D.ws;
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(new Uint8Array(bytes));
-}
+function vcb01Send(bytes) { const ws = VCB01D.ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(new Uint8Array(bytes)); }
 let vcb01KbdWired = false;
 function vcb01WireKeyboard() {
   if (vcb01KbdWired) return; vcb01KbdWired = true;
-  const key = (e, down) => {                       /* only while the canvas has focus */
+  const key = (e, down) => {
     const cv = document.getElementById('vcb01-canvas');
     if (!cv || document.activeElement !== cv) return;
     const ks = VCB01_KEYSYM[e.code]; if (!ks) return;
@@ -2084,216 +1077,716 @@ function vcb01WireKeyboard() {
   document.addEventListener('keyup', e => key(e, false));
 }
 function vcb01WireMouse(cv) {
-  if (cv.dataset.wired) return; cv.dataset.wired = '1'; /* the canvas is fresh each render */
+  if (cv.dataset.wired) return; cv.dataset.wired = '1';
   cv.addEventListener('mousemove', e => {
-    let dx = e.movementX | 0, dy = e.movementY | 0;   /* relative deltas, for the VSXXX */
+    let dx = e.movementX | 0, dy = e.movementY | 0;
     if (dx || dy) {
       dx = Math.max(-32768, Math.min(32767, dx)); dy = Math.max(-32768, Math.min(32767, dy));
       vcb01Send([0x11, (dx >> 8) & 255, dx & 255, (dy >> 8) & 255, dy & 255]);
     }
-    if (VCB01D.w) {                                   /* absolute position, the QBone extension */
+    if (VCB01D.w) {
       const ax = Math.max(0, Math.min(1023, Math.round(e.offsetX * VCB01D.w / cv.clientWidth)));
       const ay = Math.max(0, Math.min(1023, Math.round(e.offsetY * VCB01D.h / cv.clientHeight)));
       vcb01Send([0x13, (ax >> 8) & 255, ax & 255, (ay >> 8) & 255, ay & 255]);
     }
   });
-  const btn = e => {
-    const b = { 0: 1, 1: 2, 2: 3 }[e.button]; if (!b) return;
-    e.preventDefault(); vcb01Send([0x12, b, e.type === 'mousedown' ? 1 : 0]);
-  };
+  const btn = e => { const b = { 0: 1, 1: 2, 2: 3 }[e.button]; if (!b) return;
+    e.preventDefault(); vcb01Send([0x12, b, e.type === 'mousedown' ? 1 : 0]); };
   cv.addEventListener('mousedown', e => { cv.focus(); btn(e); });
   cv.addEventListener('mouseup', btn);
-  cv.addEventListener('contextmenu', e => e.preventDefault());   /* right button, not a menu */
-}
-function vcb01AfterRender() {
-  const cv = document.getElementById('vcb01-canvas');
-  if (cv) { vcb01Connect(); vcb01Blit(); vcb01WireKeyboard(); vcb01WireMouse(cv); }
-  else if (VCB01D.ws) { VCB01D.ws.close(); VCB01D.ws = null; }
-}
-function vcb01Widget(d) {
-  return '<div class="rlpanel vcb01-widget">' +
-    '<div class="plabel"><span>' + esc(d.type) + '</span><span>' + esc(d.name) + '</span></div>' +
-    '<div class="vcb01-screen"><canvas id="vcb01-canvas" tabindex="0"></canvas></div>' +
-    '<div class="vcb01-hint">click to focus — keyboard &amp; mouse drive the board</div>' +
-    '</div>';
+  cv.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-/* widget registry: model override wins over the category default */
-const WIDGET_MODELS = { RL02: rlWidget, RL01: rlWidget, RA81: ra81Widget, VCB01: vcb01Widget };
-const WIDGET_CATEGORIES = { disk: diskWidget, network: networkWidget, tape: tapeWidget };
-function widgetFor(d) {
-  if (WIDGET_MODELS[d.type]) return WIDGET_MODELS[d.type];
-  return WIDGET_CATEGORIES[catOf(d)] || null;   /* serial → terminal tab; controller/other → none */
+/* ---------------- modals (imperative promise overlays) ---------------- */
+function confirmModal(title, body, confirmLabel) {
+  return new Promise(resolve => {
+    const host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.innerHTML =
+      '<div class="card modal-card"><div class="card-head"><h3>' + esc(title) + '</h3>' +
+        '<button class="modal-close" data-cm-no aria-label="Close" title="Close">&times;</button></div>' +
+      '<div class="card-body"><p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' + body + '</p>' +
+        '<div style="display:flex; gap:8px; justify-content:flex-end">' +
+          '<button class="btn" data-cm-no>Cancel</button>' +
+          '<button class="btn danger" data-cm-yes>' + esc(confirmLabel) + '</button></div></div></div>';
+    const done = v => { host.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    function onKey(ev) { if (ev.key === 'Escape') done(false); }
+    host.addEventListener('click', ev => {
+      if (ev.target === host || ev.target.closest('[data-cm-no]')) done(false);
+      else if (ev.target.closest('[data-cm-yes]')) done(true); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(host);
+    host.querySelector('[data-cm-yes]').focus();
+  });
 }
-function enabledDevices() {
-  const out = [];
-  (function walk(list) { list.forEach(d => { if (d.enabled) out.push(d); walk(d.drives || []); }); })(DEVMODEL);
-  return out;
-}
-function renderWidgets() {
-  const host = $('#device-widgets');
-  if (!host) return;
-  const html = enabledDevices().map(d => { const w = widgetFor(d); return w ? w(d) : ''; })
-    .filter(Boolean).join('');
-  host.innerHTML = html ||
-    '<div class="muted" style="font-size:var(--fs-1); padding:4px">No device widgets — enable a disk or network device.</div>';
-  vcb01AfterRender();
-}
-/* RL drives, for the bezel button handlers */
-function rlDrives() {
-  const out = [];
-  (function walk(list) { list.forEach(d => {
-    if (d.params && d.params.some(p => p.n === 'loadlamp')) out.push(d);
-    walk(d.drives || []);
-  }); })(DEVMODEL);
-  return out;
-}
-document.addEventListener('click', e => {
-  const l = e.target.closest('[data-rl-load]');
-  if (l) {
-    const d = rlDrives().find(x => x.name === l.dataset.rlLoad);
-    if (d) {
-      const on = (d.params.find(q => q.n === 'runstopbutton') || {}).v === '1';
-      liveSetParam(d.name, 'runstopbutton', on ? '0' : '1',
-          on ? 'pack spins down, LOAD lights when safe' : 'loading — READY after spin-up');
-    }
-  }
-  const w = e.target.closest('[data-rl-wp]');
-  if (w) {
-    const d = rlDrives().find(x => x.name === w.dataset.rlWp);
-    if (d) {
-      const on = (d.params.find(q => q.n === 'writeprotectbutton') || {}).v === '1';
-      liveSetParam(d.name, 'writeprotectbutton', on ? '0' : '1',
-          on ? 'write protection released' : 'write-protected');
-    }
-  }
-  /* RA81 push-push caps stay down until pressed again */
-  const s = e.target.closest('[data-ra-sw]');
-  if (s) {
-    const sw = ra81Switches(s.dataset.raDev);
-    sw[s.dataset.raSw] = !sw[s.dataset.raSw];
-    renderWidgets();
-  }
-});
-/* FAULT is momentary: lit only while held */
-document.addEventListener('mousedown', e => {
-  const f = e.target.closest('[data-ra-fault]');
-  if (f) { ra81Switches(f.dataset.raFault).fault = true; renderWidgets(); }
-});
-document.addEventListener('mouseup', () => {
-  let lit = false;
-  RA81_SWITCHES.forEach(sw => { if (sw.fault) { sw.fault = false; lit = true; } });
-  if (lit) renderWidgets();
-});
-
-/* image-picker modal: swap the medium of a removable, unlocked drive */
-/* Pick one of the managed images, or none. Resolves to the chosen bare name,
-   to '' for detach, and to null when the dialog is dismissed. Both the front
-   panel and the configuration editor choose from the same list. */
 async function pickImage(title, emptyLabel, current) {
   const images = await fetch('/api/images').then(r => r.json()).catch(() => []);
   const now = imageLabel(current || '');
   const rows = images.map(im =>
-    '<button class="pick-row' + (im.name === now ? ' current' : '') +
-      '" data-pick-name="' + esc(im.name) + '">' +
+    '<button class="pick-row' + (im.name === now ? ' current' : '') + '" data-pick-name="' + esc(im.name) + '">' +
       '<span class="mono">' + esc(im.name) + '</span>' +
       (im.name === now ? '<span class="chip ok">loaded</span>' : '') +
-      '<span class="muted mono" style="font-size:var(--fs-0)">' + humanSize(im.size) + '</span>' +
-    '</button>').join('') ||
+      '<span class="muted mono" style="font-size:var(--fs-0)">' + humanSize(im.size) + '</span></button>').join('') ||
     '<div class="muted" style="padding:8px">No images uploaded — add one on the Storage page.</div>';
   return new Promise(resolve => {
     const host = document.createElement('div');
     host.className = 'modal-overlay';
     host.innerHTML =
-      '<div class="card modal-card">' +
-        '<div class="card-head"><h3>' + esc(title) + '</h3>' +
-          '<button class="modal-close" data-pick-close aria-label="Close" title="Close">&times;</button></div>' +
-        '<div class="pick-list">' + rows +
-          '<button class="pick-row' + (now ? '' : ' current') + '" data-pick-name="">' +
-            '<span class="muted">' + esc(emptyLabel) + '</span></button>' +
-        '</div></div>';
-    const done = v => {
-      host.remove();
-      document.removeEventListener('keydown', onKey);
-      resolve(v);
-    };
+      '<div class="card modal-card"><div class="card-head"><h3>' + esc(title) + '</h3>' +
+        '<button class="modal-close" data-pick-close aria-label="Close" title="Close">&times;</button></div>' +
+      '<div class="pick-list">' + rows +
+        '<button class="pick-row' + (now ? '' : ' current') + '" data-pick-name="">' +
+          '<span class="muted">' + esc(emptyLabel) + '</span></button></div></div>';
+    const done = v => { host.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
     function onKey(e2) { if (e2.key === 'Escape') done(null); }
     host.addEventListener('click', e => {
       if (e.target === host || e.target.closest('[data-pick-close]')) { done(null); return; }
-      const row = e.target.closest('[data-pick-name]');
-      if (row) done(row.dataset.pickName);
-    });
+      const row = e.target.closest('[data-pick-name]'); if (row) done(row.dataset.pickName); });
     document.addEventListener('keydown', onKey);
     document.body.appendChild(host);
   });
 }
-/* the front panel: change the medium on a drive that is running */
+function setPasswordModal(minLength) {
+  return new Promise(resolve => {
+    const host = document.createElement('div');
+    host.className = 'modal-overlay';
+    host.innerHTML =
+      '<div class="card modal-card"><div class="card-head"><h3>Set an admin password</h3></div>' +
+      '<div class="card-body"><p class="muted" style="margin:0 0 16px; font-size:var(--fs-1)">' +
+        'This interface controls the machine and is open to anyone who can reach it until a password ' +
+        'is set. At least ' + minLength + ' characters. Any user name is accepted when the browser asks.</p>' +
+      '<div class="set-grid">' +
+        '<label class="set-name" for="pw1">Password</label>' +
+        '<input class="set-val" id="pw1" type="password" autocomplete="new-password">' +
+        '<label class="set-name" for="pw2">Repeat</label>' +
+        '<input class="set-val" id="pw2" type="password" autocomplete="new-password"></div>' +
+      '<p id="pw-err" class="muted" style="margin:12px 0 0; font-size:var(--fs-1); color:var(--err); min-height:1.2em"></p>' +
+      '<div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px">' +
+        '<button class="btn primary" data-pw-set>Set password</button></div></div></div>';
+    const err = msg => { host.querySelector('#pw-err').textContent = msg || ''; };
+    async function submit() {
+      const p1 = host.querySelector('#pw1').value, p2 = host.querySelector('#pw2').value;
+      if (p1.length < minLength) return err('At least ' + minLength + ' characters.');
+      if (p1 !== p2) return err('The two entries do not match.');
+      err('');
+      const res = await apiJSON('/api/auth', { method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: p1 }) }).catch(() => ({ ok: false, data: {} }));
+      if (!res.ok) return err(res.data.error || 'The password could not be set.');
+      host.remove(); toast('auth', 'Admin password set'); resolve(true);
+    }
+    host.addEventListener('click', ev => { if (ev.target.closest('[data-pw-set]')) submit(); });
+    host.addEventListener('keydown', ev => { if (ev.key === 'Enter') submit(); });
+    document.body.appendChild(host);
+    host.querySelector('#pw1').focus();
+  });
+}
+async function checkAuth() {
+  const r = await fetch('/api/auth');
+  if (!r.ok) return;
+  const auth = await r.json();
+  if (auth.configured) return;
+  await setPasswordModal(auth.min_length || 8);
+}
+
+/* ============================================================
+   Components
+   ============================================================ */
+const PAGES = [['dashboard','Dashboard'], ['devices','Devices'], ['storage','Storage'],
+  ['configurations','Configurations'], ['machine','Machine'], ['log','Log']];
+
+function Toggle({ checked, onChange }) {
+  return html`<label class="toggle"><input type="checkbox" checked=${checked}
+    onChange=${e => onChange(e.target.checked)} /><span class="slider"></span></label>`;
+}
+function Chip({ cls, children }) { return html`<span class=${'chip ' + cls}>${children}</span>`; }
+
+/* ---- sidebar + topbar ---- */
+function Sidebar({ page, platform }) {
+  return html`<aside class="sidebar">
+    <div class="wordmark"><div class="mark">Q</div>
+      <div><span class="name">QBone</span><span class="sub">QBUS bridge</span></div></div>
+    <nav class="nav">${PAGES.map(([id, label]) => html`
+      <button class=${page === id ? 'active' : ''} onClick=${() => go(id)}><span>${label}</span></button>`)}</nav>
+    <div class="foot">${platform ? html`${platform}<br />web interface` : 'web interface'}</div>
+  </aside>`;
+}
+function Topbar({ page, hw, settings, connected }) {
+  const title = (PAGES.find(p => p[0] === page) || [,'Dashboard'])[1];
+  return html`<header class="topbar"><h1>${title}</h1>
+    <span class="pill"><span class=${'dot ' + (hw.dcok ? 'ok' : 'err')}></span>DCOK</span>
+    <span class="pill"><span class=${'dot ' + (hw.pok ? 'ok' : 'err')}></span>POK</span>
+    <span class="pill mono">addr ${settings.address_width}-bit</span>
+    <span class="pill">${connected
+      ? html`<span class="dot ok"></span>connected`
+      : html`<span class="dot warn"></span>disconnected`}</span></header>`;
+}
+
+/* ---- dashboard: control, front panel, terminal, widgets ---- */
+const ARM_MS = 5000;
+function DangerButton({ action, label, armLabel, onFire }) {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    const off = e => { if (!e.target.closest('[data-danger="' + action + '"]')) setArmed(false); };
+    document.addEventListener('click', off);
+    return () => document.removeEventListener('click', off);
+  }, [action]);
+  const click = e => {
+    e.stopPropagation();
+    if (!armed) { setArmed(true); clearTimeout(timer.current); timer.current = setTimeout(() => setArmed(false), ARM_MS); return; }
+    setArmed(false); onFire();
+  };
+  return html`<button class=${'btn danger' + (armed ? ' armed' : '')} data-danger=${action} onClick=${click}>
+    <span class="lbl"><span class="idle">${label}</span><span class="armed-lbl">${armLabel}</span></span></button>`;
+}
+function Control() {
+  return html`<div class="card ctrl-card"><div class="card-head"><h3>Control</h3></div>
+    <div class="card-body ctrl-btns">
+      ${html`<${DangerButton} action="halt" label="Halt" armLabel="Click again to halt"
+        onFire=${() => { liveControl('halt', 'HALT asserted — CPU stopped'); store.bus.halted = true; emit(); }} />`}
+      ${html`<${DangerButton} action="continue" label="Continue" armLabel="Click again to continue"
+        onFire=${() => { liveControl('continue', 'HALT released — CPU running'); store.bus.halted = false; emit(); }} />`}
+      ${html`<${DangerButton} action="powercycle" label="Power cycle" armLabel="Click again to power cycle"
+        onFire=${() => { liveControl('powercycle', 'devices reset, CPU reboots'); store.bus.halted = false; emit(); }} />`}
+    </div></div>`;
+}
+function FrontPanel({ bus, hw }) {
+  return html`<div class="card frontpanel"><div class="card-head"><h3>Front panel</h3></div>
+    <div class="card-body">
+      <div class="fp-row"><span class="fp-k">Bus</span>
+        <span class=${'chip ' + (bus.halted ? 'out' : 'ok')}>run</span>
+        <span class=${'chip ' + (bus.halted ? 'warn' : 'out')}>halt</span>
+        <span class=${'chip ' + (bus.init ? 'ok' : 'out')}>init</span></div>
+      <div class="fp-row"><span class="fp-k">LEDs</span><span class="ledrow">
+        ${hw.leds.map(v => html`<span class=${'led' + (v ? ' on' : '')}></span>`)}</span></div>
+      <div class="fp-row"><span class="fp-k">DIP</span><span class="dipsw">
+        ${hw.dip.map(v => html`<span class=${'dip' + (v ? ' on' : '')}></span>`)}</span></div>
+    </div></div>`;
+}
+function TermTabs({ settings }) {
+  const s = useStore();
+  const en0 = devEnabled('DL11'), en1 = devEnabled('DL11b');
+  const src = (settings.external_console || {}).source || 'off';
+  const [baud, setBaud] = useState(() =>
+    src === 'webserial' ? (localStorage.getItem('webserial.baud') || '38400')
+                        : String((settings.external_console || {}).baud || 38400));
+  useEffect(() => {
+    setBaud(src === 'webserial' ? (localStorage.getItem('webserial.baud') || '38400')
+                                : String((settings.external_console || {}).baud || 38400));
+  }, [src, (settings.external_console || {}).baud]);
+  useEffect(() => { // keep the active tab valid as SLU devices come and go
+    if ((s.activeTerm === 'slu0' && !en0) || (s.activeTerm === 'slu1' && !en1))
+      if (TERMS) liveTab(en0 ? 'slu0' : en1 ? 'slu1' : 'serial');
+  }, [en0, en1]);
+  const onBaud = v => {
+    setBaud(v);
+    const b = parseInt(v, 10);
+    if (src === 'ttys2') putSettings({ external_console: { baud: b } }, 'baud set');
+    else localStorage.setItem('webserial.baud', String(b));
+  };
+  const tab = (key, label, show) => show === false ? null :
+    html`<button class=${s.activeTerm === key ? 'active' : ''}
+      disabled=${!TERMS} onClick=${() => TERMS && liveTab(key)}>${label}</button>`;
+  return html`<div class=${'term-tabs' + (s.termReady ? ' ready' : '')}>
+    ${tab('slu0', 'SLU0 · 777560', en0)}
+    ${tab('slu1', 'SLU1 · 776500', en1)}
+    ${tab('serial', 'Console', true)}
+    ${s.activeTerm === 'serial' ? html`<span id="serial-bar" style="display:flex; align-items:center; gap:6px; margin-left:auto">
+      <select aria-label="console source" value=${src}
+        onChange=${e => putSettings({ external_console: { source: e.target.value } }, 'console source set')}>
+        <option value="webserial">Mac (Web Serial)</option>
+        <option value="ttys2">BBB /dev/ttyS2</option>
+        <option value="off">Off</option></select>
+      ${src !== 'off' ? html`<select aria-label="baud rate" value=${baud} disabled=${!!serialPort}
+        onChange=${e => onBaud(e.target.value)}>
+        ${['300','1200','2400','4800','9600','19200','38400'].map(b => html`<option value=${b}>${b}</option>`)}</select>` : null}
+      ${src === 'webserial' ? html`<button class="btn small"
+        onClick=${() => { if (!('serial' in navigator)) return; serialPort ? serialDisconnect() : serialConnect(parseInt(baud, 10)); }}>
+        ${serialPort ? 'Disconnect' : 'Connect'}</button>` : null}
+    </span>` : null}
+  </div>`;
+}
+function TerminalHost() {
+  const host = useRef(null);
+  useEffect(() => { initLiveTerminal(host.current); }, []);
+  return html`<div class="term" ref=${host} tabindex="0" aria-label="VT100 terminal, 80 columns by 24 rows"></div>`;
+}
+function Dashboard({ s }) {
+  return html`<section class="page active" data-page="dashboard">
+    <div class="dash-top">
+      <div class="dash-left">${html`<${Control} />`}${html`<${FrontPanel} bus=${s.bus} hw=${s.hw} />`}</div>
+      <div class="dash-term">${html`<${TermTabs} settings=${s.settings} />`}${html`<${TerminalHost} />`}</div>
+    </div>
+    <div class="widget-grid" style="margin-top:14px">${html`<${Widgets} />`}</div>
+  </section>`;
+}
+
+/* ---- device widgets ---- */
+function lampOn(d, n) { const p = (d.params || []).find(q => q.n === n); return p && p.v === '1'; }
+function paramVal(d, n) { const p = (d.params || []).find(q => q.n === n); return p ? p.v : ''; }
+function unitOf(d) { return paramVal(d, 'unit') || d.name.replace(/\D/g, ''); }
+function driveRemovable(d) { return d.removable === true; }
+function driveLocked(d) {
+  const img = (d.params || []).find(p => p.n === 'image');
+  if (img && img.ro) return true;
+  return lampOn(d, 'lock') || d.locked === true;
+}
 async function openImagePicker(drive, current) {
-  const name = await pickImage('Change image · ' + drive,
-      'Detach — leave the drive empty', current);
+  const name = await pickImage('Change image · ' + drive, 'Detach — leave the drive empty', current);
   if (name === null) return;
   liveSetParam(drive, 'image', name, name ? 'image attached' : 'image detached');
   setTimeout(() => refreshDevices().catch(() => {}), 300);
 }
-document.addEventListener('click', e => {
-  const s = e.target.closest('[data-swap]');
-  if (s) { e.preventDefault(); openImagePicker(s.dataset.swap, s.dataset.swapNow); }
-  const ip = e.target.closest('[data-img-pick]');
-  if (ip) openImagePicker(ip.dataset.imgPick, ip.dataset.imgNow);
-});
+function LockTag({ d }) {
+  if (!driveRemovable(d)) return html`<span class="w-tag fixed">fixed</span>`;
+  return driveLocked(d)
+    ? html`<span class="w-tag locked" title="host holds the medium locked">🔒 locked</span>`
+    : html`<span class="w-tag unlocked" title="medium can be changed">🔓 removable</span>`;
+}
+function Swap({ d, cls }) {
+  const img = d.img || paramVal(d, 'image');
+  const txt = img ? imageLabel(img) : 'no image';
+  if (driveRemovable(d) && !driveLocked(d))
+    return html`<button class=${cls + ' swap mono'} title=${img || 'change image'}
+      onClick=${e => { e.preventDefault(); openImagePicker(d.name, img); }}>${txt} · change…</button>`;
+  return html`<div class=${cls + ' mono'} title=${img || ''}>${txt}</div>`;
+}
+function Cap({ cls, lit, onClick, children }) {
+  return html`<button class=${'lampbtn ' + cls + (lit ? ' lit' : '')}
+    disabled=${!onClick} onClick=${onClick || null}>${children}</button>`;
+}
+function ReadyCap({ unit, lit, wide }) {
+  return html`<${Cap} cls=${'cap-white' + (wide ? ' wide' : '')} lit=${lit}>
+    <span class="num">${unit}</span>${wide ? html`<span class="rdy">READY</span>` : 'READY'}</${Cap}>`;
+}
+function Panel({ d, caps, foot, panelCls }) {
+  return html`<div class=${'rlpanel' + (panelCls ? ' ' + panelCls : '')}>
+    <div class="plabel"><span>${d.type}</span><span>${d.name}</span></div>
+    <div class="lamps">${caps}</div>
+    <div class="rl-foot">${foot}</div></div>`;
+}
+function RlWidget({ d }) {
+  const unit = unitOf(d);
+  const rsToggle = () => {
+    const on = paramVal(d, 'runstopbutton') === '1';
+    liveSetParam(d.name, 'runstopbutton', on ? '0' : '1',
+      on ? 'pack spins down, LOAD lights when safe' : 'loading — READY after spin-up');
+  };
+  const wpToggle = () => {
+    const on = paramVal(d, 'writeprotectbutton') === '1';
+    liveSetParam(d.name, 'writeprotectbutton', on ? '0' : '1',
+      on ? 'write protection released' : 'write-protected');
+  };
+  return html`<div class="rlpanel">
+    <div class="plabel"><span>${d.type}</span><span>${d.name}</span></div>
+    <div class="lamps">
+      <button class=${'lampbtn cap-yellow' + (lampOn(d, 'loadlamp') ? ' lit' : '')} onClick=${rsToggle}>LOAD</button>
+      <button class=${'lampbtn cap-white' + (lampOn(d, 'readylamp') ? ' lit' : '')} disabled><span class="num">${unit}</span>READY</button>
+      <button class=${'lampbtn cap-red' + (lampOn(d, 'faultlamp') ? ' lit' : '')} disabled>FAULT</button>
+      <button class=${'lampbtn cap-orange' + (lampOn(d, 'writeprotectlamp') ? ' lit' : '')} onClick=${wpToggle}>WRITE<br />PROT</button>
+    </div>
+    <div class="rl-foot">${html`<${LockTag} d=${d} />`}${html`<${Swap} d=${d} cls="rl-img" />`}</div></div>`;
+}
+const RA81_SWITCHES = new Map();
+function ra81Switches(name) { if (!RA81_SWITCHES.has(name)) RA81_SWITCHES.set(name, { wp: false, fault: false }); return RA81_SWITCHES.get(name); }
+function Ra81Widget({ d }) {
+  const [, force] = useState(0);
+  const unit = unitOf(d), sw = ra81Switches(d.name);
+  const mounted = !!(d.img || paramVal(d, 'image'));
+  const active = lampOn(d, 'accesslamp');
+  const toggle = k => { sw[k] = !sw[k]; force(x => x + 1); };
+  useEffect(() => {
+    const up = () => { if (sw.fault) { sw.fault = false; force(x => x + 1); } };
+    document.addEventListener('mouseup', up);
+    return () => document.removeEventListener('mouseup', up);
+  }, []);
+  const caps = html`
+    ${html`<${Cap} cls="cap-yellow" lit=${mounted}>RUN<br />STOP</${Cap}>`}
+    <button class=${'lampbtn cap-red' + (sw.fault ? ' lit' : '')}
+      onMouseDown=${() => toggle('fault')}>FAULT</button>
+    ${html`<${ReadyCap} unit=${unit} lit=${mounted && !active} wide=${true} />`}
+    <button class=${'lampbtn cap-yellow' + (sw.wp ? ' lit' : '')} onClick=${() => toggle('wp')}>WRITE<br />PROT</button>
+    ${html`<${Cap} cls="cap-white legend-lg" lit=${true}>A</${Cap}>`}
+    ${html`<${Cap} cls="cap-white legend-lg" lit=${false}>B</${Cap}>`}`;
+  return html`<${Panel} d=${d} caps=${caps} panelCls="span2"
+    foot=${html`${html`<${LockTag} d=${d} />`}${html`<${Swap} d=${d} cls="rl-img" />`}`} />`;
+}
+function DiskWidget({ d }) {
+  const active = lampOn(d, 'accesslamp'), unit = unitOf(d);
+  const caps = html`${html`<${ReadyCap} unit=${unit} lit=${d.enabled && !active} />`}
+    ${html`<${Cap} cls="cap-yellow" lit=${active}>ACCESS</${Cap}>`}`;
+  return html`<${Panel} d=${d} caps=${caps} panelCls="span2"
+    foot=${html`${html`<${LockTag} d=${d} />`}${html`<${Swap} d=${d} cls="rl-img" />`}`} />`;
+}
+function NetworkWidget({ d }) {
+  const iface = paramVal(d, 'interface'), mac = paramVal(d, 'mac');
+  const caps = html`${html`<${Cap} cls="cap-white" lit=${d.enabled}>LINK</${Cap}>`}
+    ${html`<${Cap} cls="cap-yellow" lit=${lampOn(d, 'activitylamp')}>ACT</${Cap}>`}`;
+  return html`<${Panel} d=${d} caps=${caps}
+    foot=${html`<div class="rl-info">${iface || '—'} · ${mac || '—'}</div>`} />`;
+}
+function TapeWidget({ d }) {
+  return html`<${Panel} d=${d} caps=${html`<${Cap} cls="cap-white" lit=${d.enabled}>TAPE</${Cap}>`} foot=${''} />`;
+}
+function Vcb01Widget({ d }) {
+  const cv = useRef(null);
+  useEffect(() => {
+    vcb01Connect(); vcb01Blit(); vcb01WireKeyboard(); if (cv.current) vcb01WireMouse(cv.current);
+    return () => {}; // the socket persists across widget rebuilds; closed only when the widget is gone
+  }, []);
+  return html`<div class="rlpanel vcb01-widget">
+    <div class="plabel"><span>${d.type}</span><span>${d.name}</span></div>
+    <div class="vcb01-screen"><canvas id="vcb01-canvas" ref=${cv} tabindex="0"></canvas></div>
+    <div class="vcb01-hint">click to focus — keyboard & mouse drive the board</div></div>`;
+}
+const WIDGET_MODELS = { RL02: RlWidget, RL01: RlWidget, RA81: Ra81Widget, VCB01: Vcb01Widget };
+const WIDGET_CATEGORIES = { disk: DiskWidget, network: NetworkWidget, tape: TapeWidget };
+function widgetFor(d) { return WIDGET_MODELS[d.type] || WIDGET_CATEGORIES[d.category || 'other'] || null; }
+function Widgets() {
+  useStore();
+  const devs = enabledDevices().filter(d => widgetFor(d));
+  const hasVcb = devs.some(d => d.type === 'VCB01');
+  useEffect(() => { if (!hasVcb) vcb01Disconnect(); }, [hasVcb]);
+  if (!devs.length)
+    return html`<div class="muted" style="font-size:var(--fs-1); padding:4px">No device widgets — enable a disk or network device.</div>`;
+  return devs.map(d => { const W = widgetFor(d); return html`<${W} d=${d} key=${d.name} />`; });
+}
 
-/* ------------------- dashboard bus control ------------------- */
-const busState = { halted: false, init: false };
-function renderBus(initFlash) {
-  $('#bus-run').className  = 'chip ' + (busState.halted ? 'out' : 'ok');
-  $('#bus-halt').className = 'chip ' + (busState.halted ? 'warn' : 'out');
-  $('#bus-init').className = 'chip ' + ((initFlash || busState.init) ? 'ok' : 'out');
+/* ---- devices page ---- */
+function ParamRow({ dev, p }) {
+  const short = p.s && p.s !== p.n ? html` <span class="p-short">(${p.s})</span>` : null;
+  let ctl;
+  if (p.n === 'image' && p.ro)
+    ctl = html`<span class="ro" title=${p.v}>${p.v ? imageLabel(p.v) : 'no image'}</span>`;
+  else if (p.n === 'image')
+    ctl = html`<button class="imgfield mono" title=${p.v || 'no image'}
+      onClick=${() => openImagePicker(dev, p.v)}>${p.v ? imageLabel(p.v) : html`<span class="muted">no image</span>`}</button>`;
+  else if (p.ro)
+    ctl = html`<span class="ro">${p.t === 'oct' ? html`<span class="octal"></span>` : null}${p.v}</span>`;
+  else if (p.t === 'enum')
+    ctl = html`<select onChange=${e => liveSetParam(dev, p.s || p.n, e.target.value, 'parameter set')}>
+      ${p.opts.map(o => html`<option selected=${o === p.v}>${o}</option>`)}</select>`;
+  else
+    ctl = html`<input type="text" value=${p.v}
+      onChange=${e => liveSetParam(dev, p.s || p.n, e.target.value, 'parameter set')} />`;
+  return html`<div class="p-name">${p.n}${short}</div>
+    <div class="p-val">${ctl}${p.u ? html`<span class="unit">${p.u}</span>` : null}</div>
+    <div class="p-info">${p.i}</div>`;
 }
-/* Each of these interrupts the running machine, so a click only arms the
-   button and the next one fires it. The arming lapses after five seconds,
-   and any click elsewhere on the page drops it. */
-const ARM_MS = 5000;
-const DANGER_ACTIONS = {
-  halt: () => {
-    liveControl('halt', 'HALT asserted — CPU stopped');
-    busState.halted = true; renderBus(false);
-  },
-  continue: () => {
-    liveControl('continue', 'HALT released — CPU running');
-    busState.halted = false; renderBus(false);
-  },
-  powercycle: () => {
-    liveControl('powercycle', 'devices reset, CPU reboots');
-    busState.halted = false;
-    $('#bus-run').className = 'chip out';
-    setTimeout(() => renderBus(false), 1200);
-  },
-};
-let armedBtn = null, armTimer = null;
-function disarm() {
-  if (armedBtn) armedBtn.classList.remove('armed');
-  armedBtn = null;
-  clearTimeout(armTimer);
+function ParamsBox({ dev, params, open }) {
+  return html`<div class="params" hidden=${!open}><div class="p-grid">
+    ${params.map(p => html`<${ParamRow} dev=${dev} p=${p} key=${p.n} />`)}</div></div>`;
 }
-document.addEventListener('click', e => {
-  const b = e.target.closest('[data-danger]');
-  if (!b) { disarm(); return; }
-  if (armedBtn !== b) {
-    disarm();
-    armedBtn = b;
-    b.classList.add('armed');
-    armTimer = setTimeout(disarm, ARM_MS);
-    return;
+function DriveRow({ d }) {
+  const [open, setOpen] = useState(false);
+  const takesImage = d.params.some(p => p.n === 'image');
+  return html`<div>
+    <div class="dev-sub">
+      <span class=${'act-led' + (d.activity ? ' on' : '')} title="activity"></span>
+      <span class="devname">${d.name}</span>
+      <span class="muted" style="font-size:var(--fs-1)">${d.type}</span>
+      ${takesImage ? (d.img
+        ? html`<span class="imgpath" title=${d.img}>${imageLabel(d.img)}</span>`
+        : html`<span class="imgpath" style="color:var(--ink-faint)">no image attached</span>`) : null}
+      <span class="spacer"></span>
+      <${Chip} cls=${d.enabled ? 'ok' : 'off'}>${d.enabled ? 'enabled' : 'disabled'}</${Chip}>
+      <${Toggle} checked=${d.enabled} onChange=${on => liveSetParam(d.name, 'enabled', on ? '1' : '0',
+        on ? 'device enabled — registers installed on the bus' : 'device disabled')} />
+      <button class="btn small" onClick=${() => setOpen(o => !o)}>Parameters</button>
+    </div>
+    <${ParamsBox} dev=${d.name} params=${d.params} open=${open} />
+  </div>`;
+}
+function DeviceCard({ c }) {
+  const [open, setOpen] = useState(false);
+  const addr = (c.params.find(p => p.n === 'base_addr') || { v: '—' }).v;
+  return html`<div class="card dev-card">
+    <div class="card-head dev-head">
+      <span class="devname">${c.name}</span>
+      <span class="devtype">${c.type}${c.info ? ' — ' + c.info : ''}</span>
+      <span class="pill addr octal mono">${addr}</span>
+      <${Chip} cls=${c.enabled ? 'ok' : 'off'}>${c.enabled ? 'enabled' : 'disabled'}</${Chip}>
+      <${Toggle} checked=${c.enabled} onChange=${on => liveSetParam(c.name, 'enabled', on ? '1' : '0',
+        on ? 'device enabled — registers installed on the bus' : 'device disabled')} />
+      <button class="btn small" onClick=${() => setOpen(o => !o)}>Parameters</button>
+    </div>
+    <${ParamsBox} dev=${c.name} params=${c.params} open=${open} />
+    ${c.enabled ? (c.drives || []).map(d => html`<${DriveRow} d=${d} key=${d.name} />`) : null}
+  </div>`;
+}
+function DevicesPage({ s }) {
+  return html`<section class="page active" data-page="devices">
+    <div>${s.devmodel.map(c => html`<${DeviceCard} c=${c} key=${c.name} />`)}</div></section>`;
+}
+
+/* ---- storage page ---- */
+function uploadImage(file, setStatus) {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/images');
+  xhr.upload.onprogress = ev => { if (ev.lengthComputable)
+    setStatus('Uploading ' + file.name + ' — ' + Math.round(100 * ev.loaded / ev.total) + '%'); };
+  xhr.onload = () => {
+    setStatus(xhr.status === 200 ? 'Uploaded ' + file.name : 'Upload failed: ' + xhr.responseText);
+    toast('POST /api/images', xhr.status === 200 ? file.name + ' uploaded' : 'upload failed');
+    refreshImages().catch(() => {});
+  };
+  xhr.onerror = () => setStatus('Upload failed.');
+  xhr.send(form);
+}
+function ImageUsage({ im }) {
+  const parts = [];
+  (im.used || []).forEach(u => parts.push(html`<span class="chip out mono" title="named by a saved configuration">${u.config}:${u.device}</span>`));
+  (im.attached || []).forEach(d => parts.push(html`<span class="chip ok mono" title="mounted on this drive now">${d} mounted</span>`));
+  return parts.length ? html`${parts}` : html`<span class="muted">—</span>`;
+}
+function DelButton({ label, confirmLabel, onConfirm }) {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return html`<button class="btn small" onClick=${() => {
+    if (!armed) { setArmed(true); clearTimeout(timer.current); timer.current = setTimeout(() => setArmed(false), 3000); return; }
+    setArmed(false); onConfirm();
+  }}>${armed ? confirmLabel : label}</button>`;
+}
+function StoragePage({ s }) {
+  const [status, setStatus] = useState('Drop an image file here to upload, or click to choose · ');
+  const fileRef = useRef(null);
+  const del = name => fetch('/api/images/' + encodeURIComponent(name), { method: 'DELETE' }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    toast('DELETE /api/images/' + name, r.ok ? 'image deleted' : (data.error || 'delete failed'));
+    refreshImages().catch(() => {});
+  });
+  return html`<section class="page active" data-page="storage">
+    <div class="dropzone" onClick=${() => fileRef.current.click()}
+      onDragOver=${e => e.preventDefault()}
+      onDrop=${e => { e.preventDefault(); if (e.dataTransfer.files.length) uploadImage(e.dataTransfer.files[0], setStatus); }}>
+      ${status}<span class="mono">.rl02 .rl01 .rk05 .rx2 .dsk .tap (.gz ok)</span></div>
+    <input type="file" hidden ref=${fileRef}
+      onChange=${e => { if (e.target.files.length) uploadImage(e.target.files[0], setStatus); e.target.value = ''; }} />
+    <div class="card"><div class="table-wrap"><table class="data">
+      <thead><tr><th>Image</th><th class="num">Size</th><th>Used by</th><th>Modified</th><th></th></tr></thead>
+      <tbody>${s.images.length ? s.images.map(im => html`<tr key=${im.name}>
+        <td class="mono">${im.name}</td>
+        <td class="mono">${humanSize(im.size)}</td>
+        <td><${ImageUsage} im=${im} /></td>
+        <td class="muted mono" style="font-size:var(--fs-0)">${im.mtime}</td>
+        <td style="text-align:right; white-space:nowrap">
+          <a class="btn small" href=${'/api/images/' + encodeURIComponent(im.name)} download>Download</a>${' '}
+          <${DelButton} label="Delete" confirmLabel="Confirm delete" onConfirm=${() => del(im.name)} />
+        </td></tr>`)
+        : html`<tr><td colspan="5" class="muted">No images yet — drop a disk image above to upload it.</td></tr>`}
+      </tbody></table></div></div></section>`;
+}
+
+/* ---- configurations page ---- */
+function cfgKey(snap) {
+  return ((snap || {}).devices || []).filter(d => d.enabled).map(d => {
+    const p = d.params || {};
+    return d.name + '{' + Object.keys(p).sort().map(k => k + '=' + p[k]).join(',') + '}';
+  }).sort().join('|');
+}
+function cfgDriveNames() { const out = []; walkDevs(d => { if (d.params && d.params.some(p => p.n === 'image')) out.push(d.name); }); return out; }
+async function loadConfigs() {
+  const r = await fetch('/api/configs');
+  if (!r.ok) throw new Error('configs fetch failed');
+  const configs = await r.json();
+  let current = null;
+  try { const cr = await fetch('/api/configs?current=1', { signal: AbortSignal.timeout(4000) });
+    if (cr.ok) current = await cr.json(); } catch (e) {}
+  const currentKey = current && cfgKey(current);
+  await Promise.all(configs.map(async c => {
+    c.snapshot = await fetch('/api/configs/' + encodeURIComponent(c.name),
+      { signal: AbortSignal.timeout(4000) }).then(x => x.json()).catch(() => null);
+    c.loaded = current != null && c.snapshot != null && cfgKey(c.snapshot) === currentKey;
+  }));
+  setStore({ configs });
+}
+async function setConfigImage(cfgName, drive, current) {
+  const name = await pickImage('Image for ' + drive + ' in “' + cfgName + '”', 'No image — leave the drive empty', current);
+  if (name === null) return;
+  const res = await apiJSON('/api/configs/' + encodeURIComponent(cfgName) + '/devices/' + encodeURIComponent(drive) + '/image', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: name }) });
+  toast(cfgName + ':' + drive + ' = ' + (name || '""'), res.ok ? 'configuration updated' : (res.data.error || 'rejected'));
+  await loadConfigs().catch(() => {});
+  refreshImages().catch(() => {});
+}
+function CfgDevices({ cfgName, snap }) {
+  const devs = ((snap || {}).devices || []).filter(d => d.enabled);
+  if (!devs.length)
+    return html`<div class="muted" style="padding:10px 14px; font-size:var(--fs-1)">This configuration switches every device off.</div>`;
+  const drives = cfgDriveNames();
+  return devs.map(d => {
+    const names = Object.keys(d.params || {}).sort().filter(n => n !== 'image');
+    const takesImage = drives.indexOf(d.name) !== -1;
+    const img = (d.params || {}).image || '';
+    return html`<div key=${d.name}>
+      <div class="dev-sub"><span class="devname">${d.name}</span><span class="spacer"></span><span class="chip ok">enabled</span></div>
+      <div class="params">${names.length || takesImage
+        ? html`<div class="p-grid">
+            ${takesImage ? html`<div class="p-name">image</div>
+              <div class="p-val"><button class="btn small" onClick=${() => setConfigImage(cfgName, d.name, img)}>
+                ${img ? imageLabel(img) : 'no image'} · change…</button></div>
+              <div class="p-info">the medium this drive starts with</div>` : null}
+            ${names.map(n => html`<div class="p-name">${n}</div>
+              <div class="p-val"><span class="ro">${String(d.params[n])}</span></div><div class="p-info"></div>`)}</div>`
+        : html`<span class="muted" style="font-size:var(--fs-1)">all parameters at their defaults</span>`}</div></div>`;
+  });
+}
+function CfgRow({ c, halted }) {
+  const [open, setOpen] = useState(false);
+  const apply = async () => {
+    if (!halted && !await confirmModal('Apply while the PDP-11 is running?',
+        'The CPU is running. Applying <b>' + esc(c.name) + '</b> reconfigures every device — drives are detached ' +
+        'and reattached, and the running system will not survive it.', 'Apply anyway')) return;
+    const res = await apiJSON('/api/configs/' + encodeURIComponent(c.name) + '/apply', { method: 'POST' });
+    toast('POST /api/configs/' + c.name + '/apply', res.ok && res.data.ok ? 'configuration applied'
+      : 'applied with rejections: ' + ((res.data.errors || []).join('; ') || 'request failed'));
+    refreshDevices().catch(() => {}); loadConfigs().catch(() => {});
+  };
+  const del = () => fetch('/api/configs/' + encodeURIComponent(c.name), { method: 'DELETE' }).then(r => {
+    toast('DELETE /api/configs/' + c.name, r.ok ? 'configuration deleted' : 'delete failed'); loadConfigs().catch(() => {});
+  });
+  return html`<div class="card cfg-row">
+    <div class="card-head">
+      <h3>${c.name}</h3>
+      <span class="muted" style="font-size:var(--fs-0)">${c.mtime}</span>
+      ${c.loaded ? html`<span class="chip ok">loaded</span>` : null}
+      ${(c.enabled || []).map(d => html`<span class="chip out">${d}</span>`)}
+      <span style="margin-left:auto; display:flex; gap:8px">
+        <button class="btn small" onClick=${() => setOpen(o => !o)}>View</button>
+        <button class="btn small primary" disabled=${c.loaded} title=${c.loaded ? 'already loaded' : ''} onClick=${apply}>Apply</button>
+        <${DelButton} label="Delete" confirmLabel="Confirm delete" onConfirm=${del} />
+      </span></div>
+    ${open ? html`<div class="cfg-devs"><${CfgDevices} cfgName=${c.name} snap=${c.snapshot} /></div>` : null}
+  </div>`;
+}
+function ConfigsPage({ s }) {
+  const [name, setName] = useState('');
+  const configs = s.configs || [];
+  const alreadySaved = configs.some(c => c.loaded);
+  const save = async () => {
+    if (!name.trim()) { toast('PUT /api/configs/…', 'enter a configuration name first'); return; }
+    const r = await fetch('/api/configs/' + encodeURIComponent(name.trim()), { method: 'PUT' });
+    toast('PUT /api/configs/' + name.trim(), r.ok ? 'current setup saved' : 'save failed');
+    setName(''); loadConfigs().catch(() => {});
+  };
+  return html`<section class="page active" data-page="configurations"><div>
+    ${!alreadySaved ? html`<div class="card cfg-row"><div class="card-head">
+      <h3>Save current setup</h3>
+      <span style="margin-left:auto; display:flex; gap:8px">
+        <input type="text" placeholder="configuration name" class="mono" value=${name}
+          onInput=${e => setName(e.target.value)}
+          style="background:transparent; border:1px solid var(--line); border-radius:6px; padding:4px 8px; color:inherit" />
+        <button class="btn small primary" onClick=${save}>Save</button></span></div></div>` : null}
+    ${configs.map(c => html`<${CfgRow} c=${c} halted=${s.bus.halted} key=${c.name} />`)}
+    ${configs.length === 0 && s.configs != null
+      ? html`<div class="muted" style="padding:8px">No saved configurations yet.</div>` : null}
+  </div></section>`;
+}
+
+/* ---- machine settings page ---- */
+function MachinePage({ s }) {
+  const ec = s.settings.external_console || {};
+  return html`<section class="page active" data-page="machine">
+    <p class="lede">Machine-wide hardware settings — global to the QBone, not tied to any one emulated device.</p>
+    <div class="card" style="margin-bottom:14px; max-width:560px">
+      <div class="card-head"><h3>Bus</h3></div>
+      <div class="card-body"><div class="set-grid">
+        <div class="set-name">Platform</div>
+        <div class="set-val"><span class="pill mono">${s.settings.platform || '—'}</span></div>
+        <div class="set-info">Bus type, fixed at build time.</div>
+        <div class="set-name">Address width</div>
+        <div class="set-val"><select class="mono" value=${String(s.settings.address_width)}
+          onChange=${e => putSettings({ address_width: parseInt(e.target.value, 10) }, 'address width set')}>
+          <option value="16">16-bit</option><option value="18">18-bit</option><option value="22">22-bit</option></select></div>
+        <div class="set-info">CPU address width. Changing it re-bases the I/O page, so it applies only while the bus is halted.</div>
+      </div></div></div>
+    <div class="card" style="max-width:560px"><div class="card-head"><h3>External console</h3></div>
+      <div class="card-body">
+        <p class="muted" style="margin:0 0 12px; font-size:var(--fs-1)">Where the real machine's console line is read. Shown as the <span class="mono">Console</span> tab on the dashboard.</p>
+        <div class="set-grid">
+          <div class="set-name">Source</div>
+          <div class="set-val">
+            ${[['webserial', html`Mac (Web Serial)`], ['ttys2', html`BBB <span class="mono">/dev/ttyS2</span>`], ['off', 'Off']].map(([v, lbl]) =>
+              html`<label class="radio"><input type="radio" name="extsrc" value=${v} checked=${ec.source === v}
+                onChange=${() => putSettings({ external_console: { source: v } }, 'console source set')} /> ${lbl}</label>`)}
+          </div>
+          <div class="set-info">Web Serial reads a USB serial port on the browser's own machine; ttyS2 reads a UART on the BeagleBone.</div>
+          <div class="set-name">Baud</div>
+          <div class="set-val"><select class="mono" value=${String(ec.baud || 38400)}
+            onChange=${e => putSettings({ external_console: { baud: parseInt(e.target.value, 10) } }, 'baud set')}>
+            ${['300','1200','2400','4800','9600','19200','38400'].map(b => html`<option value=${b}>${b}</option>`)}</select></div>
+          <div class="set-info">Line speed for the ttyS2 source. The dashboard's console tab carries the same selector.</div>
+        </div></div></div>
+  </section>`;
+}
+
+/* ---- log page ---- */
+function LogPage({ s }) {
+  useStore();
+  const boxRef = useRef(null);
+  const rows = s.log.filter(l => s.activeLevels.has(l.lvl));
+  const clsOf = l => ({ FATAL:'err', ERROR:'err', WARNING:'warn', INFO:'ok', DEBUG:'off' }[l.lvl]);
+  const toggle = lvl => { s.activeLevels.has(lvl) ? s.activeLevels.delete(lvl) : s.activeLevels.add(lvl); emit(); };
+  return html`<section class="page active" data-page="log">
+    <div class="card logcard">
+      <div class="card-head"><div class="filter-row" style="margin:0 0 0 auto">
+        ${[['ERROR','err','error'], ['WARNING','warn','warning'], ['INFO','ok','info'], ['DEBUG','off','debug']].map(([lvl, cls, label]) =>
+          html`<span class=${'chip ' + cls + (s.activeLevels.has(lvl) ? '' : ' inactive')} onClick=${() => toggle(lvl)}>${label}</span>`)}
+      </div></div>
+      <div class="card-body logbox" ref=${boxRef}>${rows.map((l, i) => html`
+        <div key=${i} style="padding:3px 0; border-bottom:1px solid var(--line-soft)">
+          <span class="muted">${l.t}</span> <span class=${'chip ' + clsOf(l)}>${l.lvl.toLowerCase()}</span>${' '}
+          <span style="color:var(--accent)">${l.src}</span> ${l.msg}</div>`)}</div>
+    </div></section>`;
+}
+
+/* ---- app root ---- */
+function go(pageId) {
+  setStore({ page: pageId });
+  if (pageId === 'storage') refreshImages().catch(() => {});
+  if (pageId === 'configurations') loadConfigs().catch(() => {});
+  if (pageId === 'machine') refreshSettings().catch(() => {});
+}
+function App() {
+  const s = useStore();
+  const page = s.page;
+  const pageEl =
+    page === 'dashboard' ? html`<${Dashboard} s=${s} />`
+    : page === 'devices' ? html`<${DevicesPage} s=${s} />`
+    : page === 'storage' ? html`<${StoragePage} s=${s} />`
+    : page === 'configurations' ? html`<${ConfigsPage} s=${s} />`
+    : page === 'machine' ? html`<${MachinePage} s=${s} />`
+    : html`<${LogPage} s=${s} />`;
+  return html`<div class="app">
+    <${Sidebar} page=${page} platform=${s.platform} />
+    <div class="main">
+      <${Topbar} page=${page} hw=${s.hw} settings=${s.settings} connected=${s.connected} />
+      <main class="content">${pageEl}</main>
+    </div></div>`;
+}
+
+render(html`<${App} />`, document.getElementById('app'));
+
+/* ---------------- boot ---------------- */
+async function initLive() {
+  try {
+    const st = await fetch('/api/state');
+    if (!st.ok) throw new Error();
+    const state = await st.json();
+    setStore({ imagesDir: state.images_dir || '', platform: state.platform || '' });
+    await checkAuth().catch(() => {});
+    await refreshDevices();
+    setStore({ connected: true });
+    await refreshSettings().catch(() => {});
+    initEvents();
+  } catch (e) {
+    setStore({ connected: false });
   }
-  disarm();
-  DANGER_ACTIONS[b.dataset.danger]();
-});
-
-/* ------------------- boot ------------------- */
-/* Only the chrome is drawn here. Every page's contents come from the
-   backend, so they stay empty until initLive has the first answer. */
-renderNav();
-show('dashboard');
+}
 initLive();
 </script>
 </body>
