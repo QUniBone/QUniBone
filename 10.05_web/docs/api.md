@@ -92,6 +92,33 @@ write to the drive's `image` parameter; an empty value detaches.
 Actions: `init` (pulse bus INIT), `powercycle` (simulated DCOK/POK power
 fail cycle), `halt` / `continue` (QBUS HALT line).
 
+## Memory
+
+The board is bus master, so it reads and writes the machine's memory - its own
+card or an emulated range - by DMA, without the CPU. Word values and addresses
+are octal, as on the console. Loading a program this way and starting it from
+the console is far faster and more reliable than depositing it by hand.
+
+### `GET /api/memory?address=<octal>&count=<n>`
+
+Reads `count` words (default 1, max 4096) from `address`.
+
+```json
+{"address": 3670016, "words": [5386, 1024, ...]}
+```
+
+`address` is echoed as a number; the word values are decimal in the JSON.
+
+### `POST /api/memory`
+
+```json
+{"address": "1000", "words": [5386, 1024, ...]}
+```
+
+Writes the words consecutively from `address`, which is a number or an octal
+string and must be even. 1..4096 words. A bus timeout answers `502`.
+Answers `{"ok": true, "address": …, "count": …}`.
+
 ## Disk images
 
 Image files live in `$QUNIBONE_DIR/images/`.

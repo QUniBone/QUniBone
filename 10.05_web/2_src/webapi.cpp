@@ -17,6 +17,8 @@
 */
 
 #include <string.h>
+#include <vector>
+#include <mutex>
 
 #include "civetweb.h"
 #include "picojson.h"
@@ -329,10 +331,140 @@ static int api_control_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	return 200;
 }
 
+// GET  /api/memory?address=<octal>&count=<n>  reads n words
+// POST /api/memory {"address": <octal-or-number>, "words": [w, ...]}  writes
+//
+// The board is bus master, so this DMAs to and from the machine's memory -
+// its own card or QBone's emulated range - without the CPU. Addresses and
+// word values are octal, matching the console. Loading a program this way and
+// starting it from the console is far faster than depositing it by hand.
+static bool parse_octal(const std::string &s, unsigned *out) {
+	if (s.empty())
+		return false;
+	char *end = nullptr;
+	unsigned long v = strtoul(s.c_str(), &end, 8);
+	if (*end != '\0')
+		return false;
+	*out = (unsigned) v;
+	return true;
+}
+
+// mem_read/mem_write index their buffer by absolute bus address - the word for
+// address A is at buffer[A/2] - and a DMA read copies into it from the adapter
+// worker thread after DMA() returns. A stale PRU completion (the interrupt
+// traffic of an enabled device makes these routine) can run that copy after the
+// request is thought done, so the buffer must outlive any single request. One
+// persistent, address-space-sized buffer, guarded by its own lock so only one
+// bus-master transfer is in flight, is what the demo menu uses and what keeps
+// the copy landing in valid memory.
+static std::mutex memory_mutex;
+static std::vector<uint16_t> &memory_buffer() {
+	static std::vector<uint16_t> buf(QUNIBUS_MAX_WORDCOUNT, 0);
+	return buf;
+}
+
+static int api_memory_handler(struct mg_connection *conn, void * /*cbdata*/) {
+	const struct mg_request_info *ri = mg_get_request_info(conn);
+
+	if (strcmp(ri->request_method, "GET") == 0) {
+		char buf[64];
+		unsigned address = 0, count = 1;
+		if (mg_get_var(ri->query_string, ri->query_string ? strlen(ri->query_string) : 0,
+				"address", buf, sizeof(buf)) <= 0 || !parse_octal(buf, &address)) {
+			send_error(conn, 400, "address=<octal> required");
+			return 400;
+		}
+		if (mg_get_var(ri->query_string, ri->query_string ? strlen(ri->query_string) : 0,
+				"count", buf, sizeof(buf)) > 0)
+			parse_octal(buf, &count);
+		if (count < 1 || count > 4096
+				|| (uint64_t) address + 2 * count > 2 * (uint64_t) QUNIBUS_MAX_WORDCOUNT) {
+			send_error(conn, 400, "address/count out of range");
+			return 400;
+		}
+		bool timeout = false;
+		std::vector<uint16_t> &mem = memory_buffer();
+		std::lock_guard<std::mutex> mlock(memory_mutex);
+		qunibus->mem_read(mem.data(), address, address + 2 * (count - 1), &timeout);
+		if (timeout) {
+			send_error(conn, 502, "bus timeout reading memory");
+			return 502;
+		}
+		picojson::array arr;
+		for (unsigned i = 0; i < count; i++)
+			arr.push_back(picojson::value((double) mem[address / 2 + i]));
+		picojson::object res;
+		res["address"] = picojson::value((double) address);
+		res["words"] = picojson::value(arr);
+		send_json(conn, 200, picojson::value(res));
+		return 200;
+	}
+
+	if (strcmp(ri->request_method, "POST") != 0) {
+		send_error(conn, 405, "GET or POST required");
+		return 405;
+	}
+
+	picojson::value req;
+	if (!read_json_body(conn, &req) || !req.is<picojson::object>()) {
+		send_error(conn, 400, "body must be a JSON object");
+		return 400;
+	}
+	unsigned address = 0;
+	const picojson::value &av = req.get("address");
+	if (av.is<double>())
+		address = (unsigned) av.get<double>();
+	else if (!av.is<std::string>() || !parse_octal(av.get<std::string>(), &address)) {
+		send_error(conn, 400, "\"address\" must be a number or octal string");
+		return 400;
+	}
+	if (!req.get("words").is<picojson::array>()) {
+		send_error(conn, 400, "\"words\" must be an array");
+		return 400;
+	}
+	const picojson::array &warr = req.get("words").get<picojson::array>();
+	unsigned n = (unsigned) warr.size();
+	if (n < 1 || n > 4096
+			|| (uint64_t) address + 2 * n > 2 * (uint64_t) QUNIBUS_MAX_WORDCOUNT) {
+		send_error(conn, 400, "address/word count out of range");
+		return 400;
+	}
+	if (address & 1) {
+		send_error(conn, 400, "address must be even");
+		return 400;
+	}
+
+	bool timeout = false;
+	{
+		std::vector<uint16_t> &mem = memory_buffer();
+		std::lock_guard<std::mutex> mlock(memory_mutex);
+		for (unsigned i = 0; i < n; i++) {
+			if (!warr[i].is<double>()) {
+				send_error(conn, 400, "each word must be a number");
+				return 400;
+			}
+			mem[address / 2 + i] = (uint16_t) warr[i].get<double>();
+		}
+		qunibus->mem_write(mem.data(), address, address + 2 * (n - 1), &timeout);
+	}
+	if (timeout) {
+		send_error(conn, 502, "bus timeout writing memory");
+		return 502;
+	}
+	WEB_INFO("memory: wrote %u words at %06o", n, address);
+	picojson::object res;
+	res["ok"] = picojson::value(true);
+	res["address"] = picojson::value((double) address);
+	res["count"] = picojson::value((double) n);
+	send_json(conn, 200, picojson::value(res));
+	return 200;
+}
+
 // called by webserver_c::start(); the host test build registers fixtures instead
 void webapi_register(struct mg_context *ctx) {
 	mg_set_request_handler(ctx, "/api/devices", api_devices_handler, nullptr);
 	mg_set_request_handler(ctx, "/api/control", api_control_handler, nullptr);
+	mg_set_request_handler(ctx, "/api/memory", api_memory_handler, nullptr);
 	webstorage_register(ctx);
 	webconfigs_register(ctx);
 	websettings_register(ctx);
