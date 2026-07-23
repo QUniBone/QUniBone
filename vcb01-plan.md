@@ -257,7 +257,7 @@ resolution. `--dump` writes a frame to an image, `--display` animates a scroll,
 and `--ddrmem` renders from the board's own video memory and times it. All 23
 pass on the workstation and on the board.
 
-**2 — The bus device. Written, not yet run on the bus.** `vcb01.cpp`: the 32
+**2 — The bus device. First light reached 2026-07-23.** `vcb01.cpp`: the 32
 registers, the CSR with its read-only bank switch and monitor size, the CRTC
 behind its address and data ports, the eight-source interrupt controller with
 its command set and per-source vectors, vertical sync at 60 Hz with blanking
@@ -266,16 +266,24 @@ screen is opened in `on_before_install()` and dropped in `on_after_uninstall()`,
 so a display that cannot be reached refuses the enable rather than leaving a
 controller on the bus with nowhere to draw.
 
-Two things have to be in place before it can run:
+With the machine cut to 256 KB the bank was free, and the halted 11/73's
+micro-ODT drove the board over the Qbus: a DATI on the CSR read back 073401 -
+the board's own bank 016 and monitor size - and DATO to video memory at
+16000000 and to the CSR put pixels on the X window. The whole path ran end to
+end: CPU cycle, PRU, DDR, refresh, render, X server (reached at the
+workstation's VPN address, see [[qbone-x-display]]).
 
-- **The bank has to be free.** The machine answers across the whole 22-bit
-  space, so its memory card has to come down below 16000000 first.
-- **The X server has to accept the board.** XQuartz needs network clients
-  enabled and `xhost` opened to the bone.
+It found a renderer bug. Writing video memory while video was disabled and then
+enabling it left the screen blank: the bitmap did not change across the
+transition, so nothing was marked dirty. A driver that clears memory, enables
+video, then draws is fine; one that enables video over content it has already
+written showed nothing. Fixed by repainting the whole screen when video-enable
+changes, with a self-test check for the sequence.
 
-Then: first light with `qunibus->mem_write()` DMAing a standalone image into
-the machine's memory, and after that programs under RSX-11M+ modelled on the
-ones from the RSXstation write-up - clear, fill, draw lines and a banner.
+Still to come: a standalone program driving the board from the CPU rather than
+by hand, and after that the same under RSX-11M+ - modelled on the RSXstation
+write-up's clear, fill, line and banner programs - if the machine can carry
+enough memory for it alongside the bank.
 
 **3 — Keyboard.** SCN2681 channel A and the LK201 model. Verified by a Macro-11
 program echoing keycodes to the console.

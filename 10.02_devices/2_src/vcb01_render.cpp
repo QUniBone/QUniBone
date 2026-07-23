@@ -178,10 +178,15 @@ const std::vector<span_t> &renderer_c::update(const uint8_t *bank, const state_t
                 mark(st.cursor_y + i);
     }
 
+    // Enabling or disabling video repaints the whole screen: the bitmap is
+    // unchanged across the transition, so without this nothing would be marked
+    // dirty and the screen would keep whatever it showed before.
+    bool video_toggled = st.video_enable != prev_state_.video_enable;
+
     memcpy(cursor_.data(), new_cursor, sizeof(new_cursor));
     prev_state_ = st;
 
-    if (full)
+    if (full || video_toggled)
         memset(dirty_.data(), 1, dirty_.size());
 
     // Repaint what was marked. Video disabled blanks the screen without

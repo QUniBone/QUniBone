@@ -224,16 +224,25 @@ static void run_checks()
     check(px[(size_t) 55 * XSIZE + 45] == 1, "an invisible cursor leaves the picture alone");
 
     printf("video enable\n");
+    st.cursor_visible = false;
     st.video_enable = false;
     r.invalidate_all();
     r.update(bank.data(), st);
     px = r.pixels();
     check(px[(size_t) 55 * XSIZE + 20] == 0, "video disabled blanks the screen");
+
+    // The transition itself has to repaint: a driver that writes video memory
+    // while video is off, then enables it, must see its pixels. Without
+    // invalidating - the transition is the only thing that changed - the
+    // screen has to come back on its own. (Found on the bus: pixels written
+    // before enable stayed hidden.)
+    set_pixel(bank.data(), 55, 300, true);
+    r.update(bank.data(), st);          // still off: the write paints blank
     st.video_enable = true;
-    r.invalidate_all();
-    r.update(bank.data(), st);
+    r.update(bank.data(), st);          // enable, no invalidate
     px = r.pixels();
-    check(px[(size_t) 55 * XSIZE + 20] == 1, "re-enabling brings the picture back");
+    check(px[(size_t) 55 * XSIZE + 20] == 1, "enabling video repaints existing content");
+    check(px[(size_t) 55 * XSIZE + 300] == 1, "a pixel written while off shows once enabled");
 }
 
 // ------------------------------------------------------------ display name checks
