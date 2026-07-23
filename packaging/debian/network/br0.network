@@ -6,5 +6,9 @@ Name=br0
 [Network]
 DHCP=ipv4
 
+# Take the domain the DHCP lease carries into the DNS search list, so a short
+# host name resolves against it. systemd-networkd drops it otherwise:
+# UseDomains defaults to no.
 [DHCPv4]
 ClientIdentifier=mac
+UseDomains=yes
