@@ -32,9 +32,9 @@ void webvcb01_publish(unsigned width, unsigned height, const unsigned char *pixe
 // Keyboard and pointer sent from a browser. The device drains these each pass
 // and feeds them to its DUART, the same way the X window's events are fed.
 struct webvcb01_input_t {
-	enum kind_e { KEY, MOTION, BUTTON } kind;
+	enum kind_e { KEY, MOTION, BUTTON, ABSPOS } kind;
 	unsigned keysym;    // KEY: an X keysym
-	int dx, dy;         // MOTION: relative movement
+	int dx, dy;         // MOTION: relative movement; ABSPOS: absolute x,y in pixels
 	int button;         // BUTTON: 1 left, 2 middle, 3 right
 	bool down;          // KEY / BUTTON
 };

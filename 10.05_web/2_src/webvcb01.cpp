@@ -137,6 +137,10 @@ static int ws_data_handler(struct mg_connection *, int opcode, char *data, size_
 		e.kind = webvcb01_input_t::BUTTON;
 		e.button = b[1];
 		e.down = b[2] != 0;
+	} else if (len == 5 && b[0] == 0x13) {          // abs pos 0x13 x:u16 y:u16
+		e.kind = webvcb01_input_t::ABSPOS;
+		e.dx = (b[1] << 8) | b[2];
+		e.dy = (b[3] << 8) | b[4];
 	} else
 		return 1;
 	std::lock_guard<std::mutex> lock(input_mutex);

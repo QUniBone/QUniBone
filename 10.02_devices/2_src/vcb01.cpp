@@ -38,7 +38,7 @@ using namespace vcb01;
 
 vcb01_c::vcb01_c() :
         qunibusdevice_c(),
-        CSR_reg(nullptr), CURX_reg(nullptr), MPOS_reg(nullptr),
+        CSR_reg(nullptr), CURX_reg(nullptr), MPOS_reg(nullptr), MPOSY_reg(nullptr),
         CRTCP_reg(nullptr), CRTCD_reg(nullptr), ICDR_reg(nullptr), ICSR_reg(nullptr),
         csr(0), cursor_x(0), crtc_pointer(0),
         window_failed(false), next_vsync_ms(0), next_refresh_ms(0),
@@ -90,8 +90,13 @@ vcb01_c::vcb01_c() :
     CURX_reg->active_on_dato = true;
     CURX_reg->writable_bits = 0xffff;
 
+    // QBone extension: the pointer's absolute screen position, which the real
+    // board's relative mouse cannot give. MPOS carries X with bit 15 set when a
+    // position is present, MPOSY carries Y. Read-only; the worker latches them.
     MPOS_reg = &(this->registers[2]);
     strcpy(MPOS_reg->name, "MPOS");
+    MPOSY_reg = &(this->registers[3]);
+    strcpy(MPOSY_reg->name, "MPOSY");
 
     CRTCP_reg = &(this->registers[4]);
     strcpy(CRTCP_reg->name, "CRTCP");
@@ -564,6 +569,26 @@ state_t vcb01_c::screen_state(void)
     return st;
 }
 
+// apply_pending_height(): a CRTC change asks for a different screen height; the
+// renderer and, when one is open, the X window follow it. Run on the worker
+// thread every pass, whether or not anything is watching, so the height is
+// already right the instant a browser attaches - it does not wait for a client
+// to be present when the CRTC is programmed.
+void vcb01_c::apply_pending_height(void)
+{
+    pthread_mutex_lock(&state_mutex);
+    unsigned want = pending_height;
+    pending_height = 0;
+    pthread_mutex_unlock(&state_mutex);
+
+    if (want != 0 && want != renderer.height()) {
+        renderer.set_height(want);
+        if (window.is_open())
+            window.resize(XSIZE, want);
+        INFO("screen height %u lines", want);
+    }
+}
+
 void vcb01_c::refresh_screen(void)
 {
     const uint8_t *video = (const uint8_t *) ddrmem->base_virtual->memory.bytes
@@ -571,18 +596,7 @@ void vcb01_c::refresh_screen(void)
 
     pthread_mutex_lock(&state_mutex);
     state_t st = screen_state();
-    unsigned want_height = pending_height;
-    pending_height = 0;
     pthread_mutex_unlock(&state_mutex);
-
-    // A CRTC change asked for a different height: resize the renderer, and the
-    // window too when one is open, here on the one thread that touches Xlib.
-    if (want_height != 0 && want_height != renderer.height()) {
-        renderer.set_height(want_height);
-        if (window.is_open())
-            window.resize(XSIZE, want_height);
-        INFO("screen height %u lines", want_height);
-    }
 
     const std::vector<span_t> &spans = renderer.update(video, st);
     if (window.is_open()) {
@@ -670,11 +684,25 @@ void vcb01_c::pump_web_input(void)
             input.pointer_event(0, 0, btn_l, btn_m, btn_r);
             update_csr();       // buttons show in the CSR
             break;
+        case webvcb01_input_t::ABSPOS:
+            set_mouse_position(e.dx, e.dy, true);   // the QBone absolute-position extension
+            break;
         }
     mirror_duart();
     update_interrupt();
     pthread_mutex_unlock(&state_mutex);
 #endif
+}
+
+// set_mouse_position(): latch the absolute pointer position for MPOS/MPOSY.
+// caller holds state_mutex.
+void vcb01_c::set_mouse_position(int x, int y, bool valid)
+{
+    if (x < 0) x = 0; else if (x > (int) MPOS_XY) x = MPOS_XY;
+    if (y < 0) y = 0; else if (y > (int) MPOS_XY) y = MPOS_XY;
+    set_register_dati_value(MPOS_reg,
+            (uint16_t) ((valid ? MPOS_VALID : 0) | (x & MPOS_XY)), __func__);
+    set_register_dati_value(MPOSY_reg, (uint16_t) (y & MPOS_XY), __func__);
 }
 
 void vcb01_c::worker(unsigned instance)
@@ -702,6 +730,7 @@ void vcb01_c::worker(unsigned instance)
             if (window.is_open())
                 pump_window_events();
             pump_web_input();
+            apply_pending_height();     // track the CRTC even with nothing watching
             bool watching = window.is_open();
 #ifdef WEBUI
             watching = watching || webvcb01_watching();

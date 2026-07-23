@@ -144,7 +144,8 @@ private:
     // register file
     qunibusdevice_register_t *CSR_reg;
     qunibusdevice_register_t *CURX_reg;
-    qunibusdevice_register_t *MPOS_reg;
+    qunibusdevice_register_t *MPOS_reg;    // QBone extension: absolute pointer X + valid bit
+    qunibusdevice_register_t *MPOSY_reg;   // QBone extension: absolute pointer Y
     qunibusdevice_register_t *CRTCP_reg;
     qunibusdevice_register_t *CRTCD_reg;
     qunibusdevice_register_t *ICDR_reg;
@@ -207,9 +208,16 @@ private:
     void write_intc_command(uint8_t value);
 
     vcb01::state_t screen_state(void);
+    void apply_pending_height(void);
     void refresh_screen(void);
     void pump_window_events(void);
     void pump_web_input(void);
+    // QBone extension: latch the pointer's absolute screen position for a
+    // program to read from MPOS/MPOSY. The real board has only a relative
+    // pointer, so bit 15 of MPOS marks the position present.
+    void set_mouse_position(int x, int y, bool valid);
+    static const uint16_t MPOS_VALID = 0x8000;
+    static const uint16_t MPOS_XY = 0x03FF;
 };
 
 #endif

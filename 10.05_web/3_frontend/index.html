@@ -2085,11 +2085,17 @@ function vcb01WireKeyboard() {
 }
 function vcb01WireMouse(cv) {
   if (cv.dataset.wired) return; cv.dataset.wired = '1'; /* the canvas is fresh each render */
-  cv.addEventListener('mousemove', e => {            /* relative deltas, for the VSXXX */
-    let dx = e.movementX | 0, dy = e.movementY | 0;
-    if (!dx && !dy) return;
-    dx = Math.max(-32768, Math.min(32767, dx)); dy = Math.max(-32768, Math.min(32767, dy));
-    vcb01Send([0x11, (dx >> 8) & 255, dx & 255, (dy >> 8) & 255, dy & 255]);
+  cv.addEventListener('mousemove', e => {
+    let dx = e.movementX | 0, dy = e.movementY | 0;   /* relative deltas, for the VSXXX */
+    if (dx || dy) {
+      dx = Math.max(-32768, Math.min(32767, dx)); dy = Math.max(-32768, Math.min(32767, dy));
+      vcb01Send([0x11, (dx >> 8) & 255, dx & 255, (dy >> 8) & 255, dy & 255]);
+    }
+    if (VCB01D.w) {                                   /* absolute position, the QBone extension */
+      const ax = Math.max(0, Math.min(1023, Math.round(e.offsetX * VCB01D.w / cv.clientWidth)));
+      const ay = Math.max(0, Math.min(1023, Math.round(e.offsetY * VCB01D.h / cv.clientHeight)));
+      vcb01Send([0x13, (ax >> 8) & 255, ax & 255, (ay >> 8) & 255, ay & 255]);
+    }
   });
   const btn = e => {
     const b = { 0: 1, 1: 2, 2: 3 }[e.button]; if (!b) return;
