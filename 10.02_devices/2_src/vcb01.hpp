@@ -53,6 +53,7 @@
 #include "parameter.hpp"
 #include "qunibusdevice.hpp"
 #include "vcb01_render.hpp"
+#include "vcb01_input.hpp"
 #include "x11display.hpp"
 
 class vcb01_c: public qunibusdevice_c {
@@ -172,6 +173,14 @@ private:
     vcb01::renderer_c renderer;
     x11display_c window;
     bool window_failed;         // reported once, not once per frame
+
+    // keyboard and pointer, behind the DUART
+    vcb01::input_c input;
+    bool btn_l = false, btn_m = false, btn_r = false;    // pointer buttons held
+    // Registers 16..21 and 24..27 are the DUART's; this maps a register index
+    // to a 2681 register, or returns -1.
+    int duart_reg(unsigned index) const;
+    void mirror_duart(void);    // push the DUART's read values into the file
 
     uint64_t next_vsync_ms;
     uint64_t next_refresh_ms;

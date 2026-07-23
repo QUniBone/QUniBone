@@ -299,11 +299,26 @@ Still to come: the same under RSX-11M+ - modelled on the RSXstation write-up's
 clear, fill, line and banner programs - if the machine can carry enough memory
 for it alongside the bank.
 
-**3 — Keyboard.** SCN2681 channel A and the LK201 model. Verified by a Macro-11
-program echoing keycodes to the console.
+**3 — Keyboard. Done.** The SCN2681 DUART and the LK201 model, in
+`vcb01_input`. Channel A carries the keyboard: an X key press becomes the
+LK201 make code, releasing the last key sends the all-up code, and the host's
+commands are answered where a driver waits on them (keyboard ID, power-up
+self-test, mode-change acknowledgements). The DUART's interrupt is the
+interrupt controller's source 0. Status registers answer from a mirrored value
+so a polling loop does not wake the ARM; only a receive buffer and a mode
+register need the ARM on read.
 
-**4 — Mouse.** Channel B, VSXXX reports, CSR button bits, the mouse position
-register, and the hardware cursor following the pointer.
+Verified on the bus: injecting a key into the window put its LK201 code in the
+receive buffer for the CPU to read - 'a' arrived as 0302, with the receiver-
+ready bit set. The protocol details are covered by `vcb01_selftest`.
+
+**4 — Mouse. Done in the same module.** Channel B carries a VSXXX pointer:
+motion becomes a three-byte report - a header with the buttons and the sign of
+each axis, then the magnitudes - and the buttons show in the CSR, which reads
+each as one when up. Prompt mode, where the pointer reports only when the host
+asks, is honoured. The report format and button handling are covered by
+`vcb01_selftest`; exercising it against a real pointer driver waits on an
+operating system that drives the QVSS.
 
 **5 — Integration.** Web UI device page, parameters through the web API,
 packaging, and documentation.

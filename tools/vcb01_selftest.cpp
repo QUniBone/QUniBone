@@ -45,6 +45,7 @@
 #include <time.h>
 
 #include "vcb01_render.hpp"
+#include "vcb01_input.hpp"
 #include "x11display.hpp"
 
 using namespace vcb01;
@@ -246,6 +247,75 @@ static void run_checks()
 }
 
 // ------------------------------------------------------------ display name checks
+
+// ------------------------------------------------------------ input checks
+
+// 2681 registers the board addresses, by their 2681 numbers.
+static const unsigned SRA = 1, RBUFA = 3, IMR = 5;
+static const unsigned SRB = 9, RBUFB = 11;
+static const uint16_t STS_RXR = 0x0001;
+
+// Read a receive buffer the way the bus does: peek for the value, then consume.
+static uint8_t rx(input_c &in, unsigned reg)
+{
+    uint8_t v = (uint8_t) (in.duart_peek(reg) & 0xFF);
+    in.duart_consume(reg);
+    return v;
+}
+
+static void run_input_checks()
+{
+    printf("keyboard\n");
+    input_c in;
+
+    check((in.duart_peek(SRA) & STS_RXR) == 0, "no keystroke waiting at reset");
+
+    in.key_event('a', true);
+    check((in.duart_peek(SRA) & STS_RXR) != 0, "a keypress makes the receiver ready");
+    check(rx(in, RBUFA) == 0xC2, "'a' arrives as the LK201 code for A");
+    check((in.duart_peek(SRA) & STS_RXR) == 0, "reading the code clears ready");
+
+    in.key_event('a', false);
+    check(rx(in, RBUFA) == 0xB3, "releasing the last key sends all-up");
+
+    // Two keys down: releasing one keeps the other, releasing both sends all-up.
+    in.key_event('b', true);
+    in.key_event('c', true);
+    check(rx(in, RBUFA) == 0xD9, "'b' code");
+    check(rx(in, RBUFA) == 0xCE, "'c' code");
+    in.key_event('b', false);
+    check(in.duart_peek(SRA) & STS_RXR ? false : true,
+            "releasing one of two keys sends nothing");
+    in.key_event('c', false);
+    check(rx(in, RBUFA) == 0xB3, "releasing the last of them sends all-up");
+
+    printf("keyboard commands\n");
+    in.duart_write(RBUFA, 0xAB);        // request keyboard ID
+    check(rx(in, RBUFA) == 0x01 && rx(in, RBUFA) == 0x00,
+            "keyboard ID request is answered 01 00");
+    in.duart_write(RBUFA, 0x0A);        // set a group mode (even command)
+    check(rx(in, RBUFA) == 0xBA, "a mode command is acknowledged");
+
+    printf("keyboard interrupt\n");
+    input_c in2;
+    in2.duart_write(2, 0x05);           // enable receiver A (CRA)
+    check(!in2.interrupt_pending(), "no interrupt while masked");
+    in2.duart_write(IMR, 0x02);         // unmask receiver A (ISTS_RAI)
+    in2.key_event('x', true);
+    check(in2.interrupt_pending(), "a keystroke interrupts once its source is enabled");
+    rx(in2, RBUFA);
+    check(!in2.interrupt_pending(), "reading the code drops the interrupt");
+
+    printf("pointer\n");
+    input_c in3;
+    in3.pointer_event(5, -3, true, false, false);
+    check((in3.duart_peek(SRB) & STS_RXR) != 0, "pointer motion makes channel B ready");
+    uint8_t h = rx(in3, RBUFB), mx = rx(in3, RBUFB), my = rx(in3, RBUFB);
+    check((h & 0x80) != 0, "a report starts with the sync bit");
+    check((h & 0x04) != 0, "the left button shows in the report");
+    check(mx == 5 && my == 3, "the movement magnitudes come through");
+    check(in3.button_left() && !in3.button_right(), "button state is held for the CSR");
+}
 
 static void run_resolve_checks()
 {
@@ -650,6 +720,7 @@ int main(int argc, char **argv)
     }
 
     run_checks();
+    run_input_checks();
     run_resolve_checks();
 
     printf("\n%d check(s) failed\n", failures);

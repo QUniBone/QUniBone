@@ -110,6 +110,48 @@ vcb01_c::vcb01_c() :
     strcpy(ICSR_reg->name, "ICSR");
     ICSR_reg->active_on_dato = true;
     ICSR_reg->writable_bits = 0xffff;
+
+    // The DUART: registers 16..21 (channel A and the interrupt controller) and
+    // 24..27 (channel B). Reads have side effects - a receive buffer pops, a
+    // mode register advances - so they are active on DATI as well as DATO.
+    static const char *duart_names[] = {
+        "MR1A", "SRA", "CRA", "RBUFA", "IPCR", "ISR", "", "",
+        "MR1B", "SRB", "CRB", "RBUFB" };
+    for (unsigned i = 16; i <= 27; i++) {
+        if (duart_reg(i) < 0)
+            continue;
+        qunibusdevice_register_t *reg = &(this->registers[i]);
+        strcpy(reg->name, duart_names[i - 16]);
+        // The status and interrupt-status registers are polled in tight loops,
+        // so they answer from the mirrored value without waking the ARM. Only
+        // a receive buffer (its read pops) and a mode register (its read
+        // advances the pointer) need the ARM on DATI.
+        reg->active_on_dati = (i == 19 || i == 27 || i == 16 || i == 24);
+        reg->active_on_dato = true;
+        reg->writable_bits = 0xffff;
+    }
+}
+
+// duart_reg(): which 2681 register a QVSS register index addresses, or -1.
+int vcb01_c::duart_reg(unsigned index) const
+{
+    if (index >= 16 && index <= 21)
+        return (int) (index - 16);      // channel A + interrupt: 2681 reg 0..5
+    if (index >= 24 && index <= 27)
+        return (int) (index - 16);      // channel B: 2681 reg 8..11
+    return -1;
+}
+
+// mirror_duart(): the DUART's read values live in this device's own state, so
+// push them into the shared register file for the PRU to return on DATI.
+void vcb01_c::mirror_duart(void)
+{
+    for (unsigned i = 16; i <= 27; i++) {
+        int r = duart_reg(i);
+        if (r >= 0)
+            set_register_dati_value(&(this->registers[i]),
+                    input.duart_peek((unsigned) r), __func__);
+    }
 }
 
 vcb01_c::~vcb01_c()
@@ -142,8 +184,11 @@ void vcb01_c::reset_controller(void)
     memset(&intc, 0, sizeof(intc));
     intc.imr = 0xFF;            // every source masked until the host says otherwise
 
-    if (CSR_reg != nullptr)
+    input.reset();
+    if (CSR_reg != nullptr) {
+        mirror_duart();
         update_csr();
+    }
     if (CURX_reg != nullptr)
         set_register_dati_value(CURX_reg, 0, __func__);
 
@@ -159,8 +204,10 @@ void vcb01_c::update_csr(void)
     value |= (uint16_t) ((bank.value & 0xF) << CSR_V_MA);
     if (large_monitor.value)
         value |= CSR_MOD;
-    // Buttons read as one when up; the pointer arrives with the DUART.
-    value |= CSR_MSA | CSR_MSB | CSR_MSC;
+    // Each button reads as one when up.
+    if (!input.button_left())   value |= CSR_MSA;
+    if (!input.button_middle()) value |= CSR_MSB;
+    if (!input.button_right())  value |= CSR_MSC;
     set_register_dati_value(CSR_reg, value, __func__);
 }
 
@@ -281,6 +328,14 @@ void vcb01_c::clear_source(unsigned source)
 // vector is what the controller would put on the bus.
 void vcb01_c::update_interrupt(void)
 {
+    // The DUART's interrupt is the interrupt controller's source 0: it is
+    // pending whenever an enabled DUART condition is - a keystroke waiting, a
+    // pointer report waiting.
+    if (input.interrupt_pending())
+        intc.irr |= (uint8_t) (1u << IRQ_DUART);
+    else
+        intc.irr &= (uint8_t) ~(1u << IRQ_DUART);
+
     if (!(csr & CSR_IEN) || !(intc.mode & ICM_MM)) {
         qunibusadapter->cancel_INTR(intr_request);
         return;
@@ -411,6 +466,12 @@ void vcb01_c::on_after_register_access(qunibusdevice_register_t *device_reg,
         // between reads, the preselect deciding which register answers.
         if (device_reg == ICDR_reg)
             set_register_dati_value(ICDR_reg, read_intc_data(), __func__);
+        else if (duart_reg(device_reg->index) >= 0) {
+            // Reading a receive buffer pops it; reload the file for next time.
+            input.duart_consume((unsigned) duart_reg(device_reg->index));
+            mirror_duart();
+            update_interrupt();
+        }
         pthread_mutex_unlock(&state_mutex);
         return;
     }
@@ -449,6 +510,10 @@ void vcb01_c::on_after_register_access(qunibusdevice_register_t *device_reg,
         write_intc_data((uint8_t) (value & 0xFF));
     } else if (device_reg == ICSR_reg) {
         write_intc_command((uint8_t) (value & 0xFF));
+    } else if (duart_reg(device_reg->index) >= 0) {
+        input.duart_write((unsigned) duart_reg(device_reg->index), value);
+        mirror_duart();
+        update_interrupt();
     }
 
     pthread_mutex_unlock(&state_mutex);
@@ -518,6 +583,8 @@ void vcb01_c::refresh_screen(void)
 
 void vcb01_c::pump_window_events(void)
 {
+    bool input_changed = false;
+
     for (const x11display_c::event_t &ev : window.poll_events())
         switch (ev.kind) {
         case x11display_c::event_t::EXPOSED:
@@ -529,10 +596,37 @@ void vcb01_c::pump_window_events(void)
             INFO("display window closed");
             window.close();
             break;
-        default:
-            // Keyboard and pointer arrive with the DUART.
+        case x11display_c::event_t::KEY_PRESS:
+        case x11display_c::event_t::KEY_RELEASE:
+            pthread_mutex_lock(&state_mutex);
+            input.key_event(ev.keysym, ev.kind == x11display_c::event_t::KEY_PRESS);
+            input_changed = true;
+            pthread_mutex_unlock(&state_mutex);
+            break;
+        case x11display_c::event_t::BUTTON_PRESS:
+        case x11display_c::event_t::BUTTON_RELEASE:
+        case x11display_c::event_t::MOTION: {
+            pthread_mutex_lock(&state_mutex);
+            // X buttons: 1 left, 2 middle, 3 right. Track them across events.
+            if (ev.button == 1) btn_l = (ev.kind == x11display_c::event_t::BUTTON_PRESS);
+            if (ev.button == 2) btn_m = (ev.kind == x11display_c::event_t::BUTTON_PRESS);
+            if (ev.button == 3) btn_r = (ev.kind == x11display_c::event_t::BUTTON_PRESS);
+            input.pointer_event(ev.dx, ev.dy, btn_l, btn_m, btn_r);
+            update_csr();       // buttons show in the CSR
+            input_changed = true;
+            pthread_mutex_unlock(&state_mutex);
             break;
         }
+        default:
+            break;
+        }
+
+    if (input_changed) {
+        pthread_mutex_lock(&state_mutex);
+        mirror_duart();
+        update_interrupt();
+        pthread_mutex_unlock(&state_mutex);
+    }
 }
 
 void vcb01_c::worker(unsigned instance)

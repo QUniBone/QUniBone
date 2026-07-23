@@ -129,6 +129,7 @@ OBJECTS = $(OBJDIR)/application.o	\
 	$(OBJDIR)/delqa.o	\
 	$(OBJDIR)/vcb01.o	\
 	$(OBJDIR)/vcb01_render.o	\
+	$(OBJDIR)/vcb01_input.o	\
 	$(OBJDIR)/x11display.o	\
 	$(OBJDIR)/ether_bridge.o	\
 	$(OBJDIR)/rx0102drive.o	\
@@ -356,10 +357,13 @@ $(OBJDIR)/mscp_drive.o :   $(DEVICE_SRC_DIR)/mscp_drive.cpp $(DEVICE_SRC_DIR)/ms
 $(OBJDIR)/delqa.o :   $(DEVICE_SRC_DIR)/delqa.cpp $(DEVICE_SRC_DIR)/delqa.hpp $(DEVICE_SRC_DIR)/delqa_bootrom.h $(DEVICE_SRC_DIR)/ether_bridge.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
-$(OBJDIR)/vcb01.o :   $(DEVICE_SRC_DIR)/vcb01.cpp $(DEVICE_SRC_DIR)/vcb01.hpp $(DEVICE_SRC_DIR)/vcb01_render.hpp $(DEVICE_SRC_DIR)/x11display.hpp
+$(OBJDIR)/vcb01.o :   $(DEVICE_SRC_DIR)/vcb01.cpp $(DEVICE_SRC_DIR)/vcb01.hpp $(DEVICE_SRC_DIR)/vcb01_render.hpp $(DEVICE_SRC_DIR)/vcb01_input.hpp $(DEVICE_SRC_DIR)/x11display.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/vcb01_render.o :   $(DEVICE_SRC_DIR)/vcb01_render.cpp $(DEVICE_SRC_DIR)/vcb01_render.hpp
+	$(CC) $(CCFLAGS) $< -o $@
+
+$(OBJDIR)/vcb01_input.o :   $(DEVICE_SRC_DIR)/vcb01_input.cpp $(DEVICE_SRC_DIR)/vcb01_input.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/x11display.o :   $(DEVICE_SRC_DIR)/x11display.cpp $(DEVICE_SRC_DIR)/x11display.hpp
