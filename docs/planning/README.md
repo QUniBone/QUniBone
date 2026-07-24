@@ -28,16 +28,16 @@ Status legend, shown at the top of each document:
 | Area | Document | Status |
 |---|---|---|
 | Configuration model | [configuration-model.md](configuration-model.md) | Ready — [plan](../../configuration-model-plan.md) |
-| Web: configuration management | [web-config-management.md](web-config-management.md) | Gathering |
-| Web: dashboard | [web-dashboard.md](web-dashboard.md) | Gathering |
-| Web: navigation and URL state | [web-navigation.md](web-navigation.md) | Gathering |
-| Console | [console.md](console.md) | Gathering |
-| Device metadata (friendly names) | [device-metadata.md](device-metadata.md) | Gathering |
-| Serial ports over TCP | [serial-ports.md](serial-ports.md) | Gathering |
-| VCB01 support | [vcb01.md](vcb01.md) | Gathering |
-| Logging control | [logging.md](logging.md) | Gathering |
-| RSX-11M+ over DELQA | [rsx-delqa.md](rsx-delqa.md) | Gathering |
-| MCP server | [mcp-server.md](mcp-server.md) | Gathering |
+| Web: configuration management | [web-config-management.md](web-config-management.md) | Ready — [plan](../../web-config-management-plan.md) |
+| Web: dashboard | [web-dashboard.md](web-dashboard.md) | Ready — [plan](../../web-dashboard-plan.md) |
+| Web: navigation and URL state | [web-navigation.md](web-navigation.md) | Ready — [plan](../../web-navigation-plan.md) |
+| Console | [console.md](console.md) | Ready — [plan](../../console-plan.md) |
+| Device metadata (friendly names) | [device-metadata.md](device-metadata.md) | Ready — [plan](../../device-metadata-plan.md) |
+| Serial ports over TCP | [serial-ports.md](serial-ports.md) | Ready — [plan](../../serial-ports-plan.md) |
+| VCB01 support | [vcb01.md](vcb01.md) | Ready — [plan](../../vcb01-plan.md) |
+| Logging control | [logging.md](logging.md) | Ready — [plan](../../logging-plan.md) |
+| RSX-11M+ over DELQA | [rsx-delqa.md](rsx-delqa.md) | Ready — [plan](../../rsx-delqa-plan.md) |
+| MCP server | [mcp-server.md](mcp-server.md) | Ready — [plan](../../mcp-server-plan.md) |
 | Device implementation standard | [device-implementation-standard.md](device-implementation-standard.md) | Standing |
 
 ## Cross-cutting decisions

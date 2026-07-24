@@ -1,6 +1,7 @@
 # Logging control
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`logging-plan.md`](../../logging-plan.md).
 
 The log level is controllable from the web interface.
 

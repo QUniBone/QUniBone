@@ -1,6 +1,8 @@
 # VCB01 support
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`vcb01-plan.md`](../../vcb01-plan.md) (device background plus the current-round
+web-keyboard, 2.11BSD-driver, and performance work).
 
 Reliable VCB01 use: keyboard input from the web UI, and a working 2.11BSD driver
 for the graphics device.

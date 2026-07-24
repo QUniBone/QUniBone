@@ -1,6 +1,7 @@
 # Web navigation and URL state
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`web-navigation-plan.md`](../../web-navigation-plan.md).
 
 The web UI's navigation state lives in the URL, so a page can be linked,
 reloaded, and reached with the browser's back/forward buttons.

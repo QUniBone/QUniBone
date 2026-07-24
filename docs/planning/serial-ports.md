@@ -1,6 +1,7 @@
 # Serial ports over TCP
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`serial-ports-plan.md`](../../serial-ports-plan.md).
 
 Additional emulated serial ports, each mapped to a TCP port so a host program
 can connect to it.

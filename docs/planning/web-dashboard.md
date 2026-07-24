@@ -1,6 +1,7 @@
 # Web: dashboard
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`web-dashboard-plan.md`](../../web-dashboard-plan.md).
 
 Refinements to the dashboard: the control row, the front panel, disk widgets,
 and LED rendering.

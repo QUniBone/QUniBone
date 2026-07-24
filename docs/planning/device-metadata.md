@@ -1,6 +1,7 @@
 # Device metadata (friendly names)
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`device-metadata-plan.md`](../../device-metadata-plan.md).
 
 Devices carry a friendly name shown in the web UI, alongside their terse
 identifier.

@@ -323,6 +323,89 @@ operating system that drives the QVSS.
 **5 — Integration.** Web UI device page, parameters through the web API,
 packaging, and documentation.
 
+## Current round — web use, driver, performance
+
+The device works on the bus and renders to a web canvas over `/ws/vcb01`
+(`webvcb01.cpp`), in addition to the X path. This round makes that web use
+reliable, gives 2.11BSD a way to draw to the board, and settles whether the
+graphics path is fast enough. Requirements in
+[`docs/planning/vcb01.md`](docs/planning/vcb01.md).
+
+### Keyboard input over the web UI
+
+`/ws/vcb01` carries key events as `0x10 <down> <keysym:u32>`; the frontend
+listens on `document` for keydown/keyup, gated on the canvas holding focus
+(`activeElement === cv`), maps the physical `e.code` through `VCB01_KEYSYM`, and
+sends make/break into the same LK201 model (`vcb01_input`) the X path drives. It
+is unreliable in three ways, all on the browser side:
+
+- **A release is lost when the canvas loses focus.** A `keyup` that arrives after
+  focus moved away (alt-tab, a click elsewhere) fails the `activeElement` gate and
+  is dropped, so the emulated LK201 never sees the key go up and the guest holds a
+  stuck key.
+- **Browser auto-repeat floods makes.** A held key fires repeated `keydown`s; each
+  is sent as a fresh make, competing with the LK201's own auto-repeat.
+- **Unmapped keys vanish silently** — any `e.code` absent from `VCB01_KEYSYM` is
+  dropped with no feedback.
+
+The fix keeps the **emulated LK201 authoritative for repeat**, as real hardware
+is:
+
+- Send **one make per physical press** — ignore `keydown` events with
+  `e.repeat`.
+- Send a release on `keyup`, and add a **window `blur` / visibility-loss handler
+  that releases every held key** (the LK201 all-up), so nothing sticks when focus
+  leaves the canvas. The frontend tracks the currently-down set to do this.
+- **Complete `VCB01_KEYSYM`** for the full LK201 layout, and log (once) an
+  unmapped code rather than dropping it silently.
+- The emulated LK201 generates **auto-repeat and the all-up metronome** itself;
+  the frontend only reports discrete press/release edges.
+
+Validation: a held key auto-repeats at the guest-programmed rate and stops on
+release; alt-tab or click-away while a key is down leaves no key stuck; the LK201
+command set (ID, self-test, mode/LED, auto-repeat configuration) is answered so a
+driver that configures the keyboard does not hang. Covered by `vcb01_selftest`
+for the protocol and a manual focus-loss check on hardware.
+
+### 2.11BSD driver — a graphics surface
+
+The goal is a **program-drawable graphics surface**: user programs draw pixels to
+the framebuffer, beyond a text terminal.
+
+1. **Establish what 2.11BSD carries.** Check the board's `2.11BSD_qbone.dsk`
+   `/sys` tree for a `qv`/QVSS driver (the QVSS is a PDP-11-era DEC board, so a
+   `qv`-class driver may exist and simply not be configured into this kernel).
+2. **If a driver exists**, configure it into the kernel and confirm the emulated
+   VCB01 presents the register and interrupt interface it targets — the CSR
+   (with the read-only bank field), the 6845 CRTC, the eight-source interrupt
+   controller, and the SCN2681 DUART — adjusting the emulation to the specific
+   board the driver expects where they differ.
+3. **If none exists**, write a `qv`-class driver exposing the 256 KB video bank as
+   a **framebuffer device** (a character/`mmap` device onto the bank) so user
+   programs draw directly, with the LK201 keyboard delivered through the DUART.
+   Built from the QVSS register interface this emulation already implements and
+   the DEC manual kept in the repo.
+
+Because the VCB01/QVSS may have no XXDP diagnostic, its stand-in validation (per
+the [device implementation standard](docs/planning/device-implementation-standard.md))
+is a guest program that opens the framebuffer device and draws a known pattern,
+read back over `/ws/vcb01`, plus keyboard delivery into a reading program.
+
+### Performance
+
+The refresh worker is already cheap — a full 30 Hz pass measured at ≈3.5 ms
+(§Refresh) — so the RSX-11 demo's slowness is most likely the **guest's per-pixel
+bus writes** (each pixel is a DATO through the PRU/ARM), not the renderer. This
+round **profiles before committing** to any optimisation:
+
+- Measure on hardware: per-pixel DATO latency for framebuffer writes, the
+  `/ws/vcb01` frame/stream rate, and the guest draw-loop time, to attribute the
+  cost.
+- **Optimise only a QBone-side cost the profile actually shows** (e.g. streaming
+  or dirty-rectangle handling). A cost that lives in the guest's byte-at-a-time
+  drawing over the bus is inherent to how the program writes video memory and is
+  recorded, not chased. No speedup is pre-committed.
+
 ## What the layout was checked against
 
 Lee K. Gleason's `setlin.mac`, written for the RSXstation and linked from that
