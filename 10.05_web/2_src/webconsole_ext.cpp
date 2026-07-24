@@ -24,10 +24,12 @@
 #include <chrono>
 #include <mutex>
 #include <set>
+#include <vector>
 #include <string>
 #include <thread>
 
 #include "civetweb.h"
+#include "webws.hpp"
 
 #include "rs232.hpp"
 #include "dl11w.hpp"
@@ -78,9 +80,13 @@ static void reader_loop(void) {
 		}
 		if (n > 0) {
 			std::lock_guard<std::mutex> lock(clients_mutex);
+			std::vector<struct mg_connection *> dead;
 			for (struct mg_connection *conn : clients)
-				mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_BINARY,
-						(const char *) buf, n);
+				if (web_ws_try_send(conn, MG_WEBSOCKET_OPCODE_BINARY,
+						(const char *) buf, n) < 0)
+					dead.push_back(conn);
+			for (struct mg_connection *conn : dead)
+				clients.erase(conn);
 		} else {
 			std::this_thread::sleep_for(std::chrono::milliseconds(n == 0 ? 5 : 20));
 		}

@@ -12996,6 +12996,32 @@ dav_proppatch(struct mg_connection *conn, const char *path)
 #endif
 
 
+CIVETWEB_API int
+mg_connection_writable(const struct mg_connection *conn)
+{
+	struct pollfd pfd;
+	int r;
+
+	if ((conn == NULL) || (conn->client.sock == INVALID_SOCKET)) {
+		return -1;
+	}
+	memset(&pfd, 0, sizeof(pfd));
+	pfd.fd = conn->client.sock;
+	pfd.events = POLLOUT;
+	r = poll(&pfd, 1, 0);
+	if (r < 0) {
+		return -1;
+	}
+	if (r == 0) {
+		return 0; /* send buffer full: a slow or vanished client */
+	}
+	if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+		return -1;
+	}
+	return (pfd.revents & POLLOUT) ? 1 : 0;
+}
+
+
 CIVETWEB_API void
 mg_lock_connection(struct mg_connection *conn)
 {

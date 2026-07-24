@@ -846,6 +846,13 @@ CIVETWEB_API void mg_lock_connection(struct mg_connection *conn);
 CIVETWEB_API void mg_unlock_connection(struct mg_connection *conn);
 
 
+/* Return 1 if the connection's socket can currently accept a write without
+   blocking, 0 if its send buffer is full (a slow or vanished client), -1 on
+   error or a closed socket. A broadcaster uses this to skip a client that
+   would otherwise block the shared write path for every other client. */
+CIVETWEB_API int mg_connection_writable(const struct mg_connection *conn);
+
+
 /* Lock server context.  This lock may be used to protect resources
    that are shared between different connection/worker threads.
    If the given context is not server, these functions do nothing. */

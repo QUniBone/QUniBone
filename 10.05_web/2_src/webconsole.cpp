@@ -26,12 +26,14 @@
 #include <mutex>
 #include <ostream>
 #include <set>
+#include <vector>
 #include <sstream>
 #include <streambuf>
 #include <string>
 #include <thread>
 
 #include "civetweb.h"
+#include "webws.hpp"
 
 #include "logger.hpp"
 #include "device_configuration.hpp"
@@ -90,9 +92,13 @@ static void flush_loop(void) {
 			if (batch.empty())
 				continue;
 			std::lock_guard<std::mutex> lock(console.clients_mutex);
+			std::vector<struct mg_connection *> dead;
 			for (struct mg_connection *conn : console.clients)
-				mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_BINARY,
-						batch.data(), batch.size());
+				if (web_ws_try_send(conn, MG_WEBSOCKET_OPCODE_BINARY,
+						batch.data(), batch.size()) < 0)
+					dead.push_back(conn);
+			for (struct mg_connection *conn : dead)
+				console.clients.erase(conn);
 		}
 	}
 }

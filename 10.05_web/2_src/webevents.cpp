@@ -24,9 +24,11 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <vector>
 #include <thread>
 
 #include "civetweb.h"
+#include "webws.hpp"
 #include "picojson.h"
 
 #include "logger.hpp"
@@ -226,10 +228,18 @@ static void broadcast_loop(void) {
 		if (batch.empty())
 			continue;
 		std::lock_guard<std::mutex> lock(clients_mutex);
-		for (const std::string &msg : batch)
-			for (struct mg_connection *conn : clients)
-				mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_TEXT,
+		std::vector<struct mg_connection *> dead;
+		for (struct mg_connection *conn : clients)
+			for (const std::string &msg : batch) {
+				int r = web_ws_try_send(conn, MG_WEBSOCKET_OPCODE_TEXT,
 						msg.c_str(), msg.size());
+				if (r < 0)
+					dead.push_back(conn);
+				if (r <= 0)
+					break; // dead or behind: nothing more this round
+			}
+		for (struct mg_connection *conn : dead)
+			clients.erase(conn);
 	}
 }
 

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "civetweb.h"
+#include "webws.hpp"
 #include "webvcb01.hpp"
 
 static std::mutex clients_mutex;
@@ -78,32 +79,64 @@ void webvcb01_publish(unsigned width, unsigned height, const unsigned char *pixe
 		last_height = height;
 	}
 
+	std::vector<struct mg_connection *> dead;
+
+	// A full frame goes to every client owed one: a fresh connection, or one
+	// that fell behind on spans last pass. A client whose send buffer is full
+	// keeps its debt for the next pass rather than blocking the others.
 	if (!need_full.empty()) {
 		std::string msg;
 		msg.push_back((char) 0x01);
 		msg.push_back((char) (width >> 8));  msg.push_back((char) (width & 0xFF));
 		msg.push_back((char) (height >> 8)); msg.push_back((char) (height & 0xFF));
 		pack_rows(msg, width, pixels, 0, height);
-		for (struct mg_connection *conn : need_full)
-			mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_BINARY, msg.data(), msg.size());
+		std::set<struct mg_connection *> still_need;
+		for (struct mg_connection *conn : need_full) {
+			int r = web_ws_try_send(conn, MG_WEBSOCKET_OPCODE_BINARY, msg.data(), msg.size());
+			if (r < 0)
+				dead.push_back(conn);
+			else if (r == 0)
+				still_need.insert(conn); // buffer full: retry the full frame later
+		}
+		need_full.swap(still_need);
 	}
 
-	// Clients that just got a full frame are current; the rest get the spans.
+	// Everyone not awaiting a full frame gets the spans. Missing even one span
+	// would leave a stale patch, so a client that cannot take them all is owed
+	// a fresh full frame instead of a partial update.
 	std::set<struct mg_connection *> established = clients;
 	for (struct mg_connection *conn : need_full)
 		established.erase(conn);
-	need_full.clear();
+	for (struct mg_connection *conn : dead)
+		established.erase(conn);
 
-	if (established.empty())
-		return;
-	for (const vcb01::span_t &s : spans) {
-		std::string msg;
-		msg.push_back((char) 0x02);
-		msg.push_back((char) (s.first >> 8)); msg.push_back((char) (s.first & 0xFF));
-		msg.push_back((char) (s.count >> 8)); msg.push_back((char) (s.count & 0xFF));
-		pack_rows(msg, width, pixels, s.first, s.count);
+	if (!established.empty() && !spans.empty()) {
+		std::vector<std::string> span_msgs;
+		for (const vcb01::span_t &s : spans) {
+			std::string msg;
+			msg.push_back((char) 0x02);
+			msg.push_back((char) (s.first >> 8)); msg.push_back((char) (s.first & 0xFF));
+			msg.push_back((char) (s.count >> 8)); msg.push_back((char) (s.count & 0xFF));
+			pack_rows(msg, width, pixels, s.first, s.count);
+			span_msgs.push_back(std::move(msg));
+		}
 		for (struct mg_connection *conn : established)
-			mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_BINARY, msg.data(), msg.size());
+			for (const std::string &m : span_msgs) {
+				int r = web_ws_try_send(conn, MG_WEBSOCKET_OPCODE_BINARY, m.data(), m.size());
+				if (r < 0) {
+					dead.push_back(conn);
+					break;
+				}
+				if (r == 0) {
+					need_full.insert(conn); // behind: catch it up with a full frame next pass
+					break;
+				}
+			}
+	}
+
+	for (struct mg_connection *conn : dead) {
+		clients.erase(conn);
+		need_full.erase(conn);
 	}
 }
 

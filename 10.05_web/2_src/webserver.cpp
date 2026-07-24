@@ -190,7 +190,20 @@ bool webserver_c::start(void) {
 	const char *options[] = { //
 			"document_root", docroot.c_str(), //
 			"listening_ports", portstr, //
-			"num_threads", "16", //
+			// One worker thread is tied up for the life of every WebSocket, so
+			// the pool must cover several open pages (each holds a few) plus
+			// concurrent REST requests without starving new connections.
+			"num_threads", "48", //
+			// A page that navigates away or a laptop that sleeps leaves a
+			// WebSocket half-open with no close. Ping it, and drop it after a
+			// few unanswered pings, so its worker thread returns to the pool
+			// instead of leaking until the pool is exhausted.
+			"enable_websocket_ping_pong", "yes", //
+			"websocket_timeout_ms", "5000", //
+			// Bounds any socket write that does block (the broadcasters avoid it,
+			// but this backstops a client that stalls mid-message) so it cannot
+			// hold a worker for the 30 s default.
+			"request_timeout_ms", "5000", //
 			"enable_directory_listing", "no", //
 			"static_file_max_age", "0", //
 			// civetweb does not know the extension, and would serve the PWA
