@@ -30,10 +30,15 @@ on navigation and does not cleanly re-establish.
 
 ### History storage and replay
 
-- The console output is **stored on the server** in an **in-memory ring buffer**
-  (bounded; not persisted across a service restart).
+- The console output is **stored on the server** in an **in-memory ring buffer**,
+  a **bounded byte cap (~256 KB) per channel** with oldest bytes dropped; not
+  persisted across a service restart.
 - The stored history is **raw bytes**. On connect, a client is served the raw
   history verbatim before the live stream, and xterm.js reconstructs the screen.
+- **All console channels** retain and replay history uniformly — the external
+  console, the emulated DL11s, and the serial-mux ports
+  ([serial-ports.md](serial-ports.md)).
+- On reconnect a client is replayed the **full retained history** each time.
 
 ### Scope
 
@@ -59,11 +64,5 @@ on navigation and does not cleanly re-establish.
 
 ### History storage and replay
 
-- How big is the ring — a byte cap, a line cap, or sized to one 24-line screen
-  plus some scrollback?
-- Which streams get history — the external console, the emulated DL11s, the
-  serial-mux ports ([serial-ports.md](serial-ports.md)), or all uniformly?
-- On reconnect, full retained history every time, or a resume point so a brief
-  drop does not replay everything?
 - Relationship to the journal — the console flush already keeps the journal live;
   is the stored console log the same artifact or separate?

@@ -39,11 +39,11 @@ The server provides:
 - **Control is always exposed** — no separate read-only mode.
 - **Console access is snapshot + send-input** (request/response), paired with the
   wait-for-pattern helper for change detection, rather than a live subscription.
+- **Reuses QBone's HTTP basic password** from `~/.qbone-pw` — the same auth the
+  REST examples use; no separate credential.
 
 ## Open questions
 
-- Does it reuse QBone's HTTP basic password (the workstation already holds it in
-  `~/.qbone-pw`), or carry its own credential?
 - The **wait-for helpers** likely need new backend support (a long-poll or event
   endpoint the server blocks on). What does that endpoint look like?
 - Is reading the front-panel / bus state (LEDs, switches) part of device status,

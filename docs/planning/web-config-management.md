@@ -34,6 +34,10 @@ between the three are not visible in one place.
 
 - **Master/detail layout** (configs list ↔ selected config's devices + images).
 - **Edit any config in place**, saving without applying.
+- **One editor for all configs.** The same device/image editor serves any
+  configuration; editing the current config tracks the live dirty state, editing
+  a stored config just writes the file. The difference is in what Save does, not
+  the UI.
 - **Device management lives only in a configuration's context** — there is no
   standalone Devices page. **Images keep a standalone library page** (upload,
   list, delete) since images exist independently of any config; assignment
@@ -41,9 +45,9 @@ between the three are not visible in one place.
 
 ## Open questions
 
-- Editing a stored (non-current) config is offline; editing the current config
-  touches the live machine's dirty state. Are these the same editor with
-  different save semantics, or visibly different modes?
+- With one editor for all configs, editing the current config touches the live
+  machine's dirty state while editing a stored config does not — how is that
+  difference signalled so the consequence stays obvious without a separate mode?
 - Images exist independently of any configuration (upload, list, delete). Where
   does image *library* management live versus image *assignment* to a drive?
 - How are device friendly names ([device-metadata.md](device-metadata.md)) shown

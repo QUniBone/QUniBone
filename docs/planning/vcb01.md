@@ -24,6 +24,14 @@ LK201 keyboard) is unconfirmed. Background on the device is in
 - 2.11BSD drives the VCB01: enable the driver if the kernel already carries one,
   or write one if it does not.
 
+### Implementation standard
+
+- The VCB01 follows the
+  [device implementation standard](device-implementation-standard.md) — built
+  from its original manual (kept in the repo, OCR'd if needed). The VCB01/QVSS
+  may have no XXDP diagnostic; if so, its stand-in validation is an open question
+  in that standard.
+
 ### Performance
 
 - The VCB01 graphics path is fast enough to run the demos at their intended

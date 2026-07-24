@@ -24,30 +24,41 @@ and three rocker switches), driving QBone's control actions:
 - **RUN LED** — lit when the CPU is running and executing an instruction; off
   when halted or waiting. This is the run-state display, now living in the
   control section.
-- **RESTART switch** (momentary) — resets the machine and restarts the processor.
-  Maps to QBone's init/restart. Real function: a system reset before restarting
-  execution.
+- **RESTART switch** (momentary) — pulses BINIT and restarts the processor from
+  its power-up/boot sequence (INIT, then resume at the restart vector), matching
+  the 11/03's "system reset before restarting execution". More than a bare INIT
+  pulse.
 - **HALT / ENABLE switch** (two-position) — HALT halts the processor (into the
   console/ODT state), ENABLE lets it run. It reflects the **live run state** and
   sets it — this is the single halt/continue control (no separate halt and
-  continue buttons). Maps to QBone halt / continue.
-- **DC ON/OFF switch** — powers the machine on and off; an OFF→ON cycle is a power
-  cycle. Maps to QBone powercycle.
+  continue buttons). Maps to QBone halt / continue. During a brief unknown or
+  transitional moment it **holds its last-known position** rather than flickering.
+- **DC ON/OFF switch** — a real toggle with a **persistent off state**: OFF leaves
+  the emulated machine powered down (RUN and PWR OK dark) until switched ON. An
+  OFF→ON transition powers it up.
 
 The two LEDs are the bus/run display moved into the control section; the
 HALT/ENABLE switch is the single run-state toggle.
 
 ### Front panel — activity LEDs and DIP switches
 
-- The activity LEDs and DIP switches form a **fixed-size grid**, tightened and
+- The activity LEDs and DIP switches stay as a **separate element** beside the
+  11/03-styled control panel, forming a **fixed-size grid**, tightened and
   visually improved, in the same LED visual language as the control panel.
-- The **DIP switches are display-only** — they reflect state, not toggled from
-  the dashboard.
+- The **DIP switches are the QUniBone cape's physical switches**; the panel only
+  **shows their current state**. No function is assigned to them — the user may
+  use them as they wish — so the dashboard reads and displays their position and
+  nothing more.
 
 ### Disk widgets
 
-- The RL02 widget, and the other disk widget, gain a **verbal status**:
-  `loaded` / `ready` / `busy` / `off` / `idle`.
+- The RL02 widget, and the other disk widget, gain a **verbal status** with these
+  meanings:
+  - `off` — device disabled
+  - `idle` — enabled but no image
+  - `loaded` — image attached, drive coming online
+  - `ready` — online and mounted, available for I/O
+  - `busy` — actively transferring
 - **Any disk drive's image can be selected from its widget**, without leaving the
   dashboard. The widget opens the **same image-assignment picker** used on the
   configuration-management screen
@@ -61,11 +72,13 @@ HALT/ENABLE switch is the single run-state toggle.
 
 ### LED rendering
 
-- **All LEDs use the same rendering** — the status tiles in the top-right and the
-  LEDs in the front panel render the same way.
+- **All LEDs use the same rendering** — the status tiles in the top-right, the
+  control-panel LEDs, and the front-panel LEDs render the same way.
 - Slightly **larger** LEDs.
 - **Less pronounced glow**.
-- LED colors **closer to real LED colors**.
+- **Real-LED look throughout** — realistic physical LED colors (the reddish/amber
+  of period DEC panels, matching the 11/03 photo), regardless of what each LED
+  signals.
 
 ### Chrome
 
@@ -76,24 +89,26 @@ HALT/ENABLE switch is the single run-state toggle.
 - **Control panel modelled on the PDP-11/03 console** — PWR OK / RUN LEDs and
   RESTART / HALT-ENABLE / DC-ON-OFF switches, mapped to QBone's init, halt,
   continue, and powercycle actions. (Reference: the 11/03 bezel photo.)
-- **DIP switches display-only.**
+- **DIP switches display-only**, kept as a separate grid beside the control panel.
 - **Any disk drive** can have its image selected from its widget.
+- **RESTART = reset + restart from boot** (INIT then resume from the power-up
+  vector).
+- **DC ON/OFF has a persistent off state** (the machine can sit powered down).
+- **Disk verbal status** uses the five-state mapping above
+  (off/idle/loaded/ready/busy).
+- **Real-LED look throughout** for all LEDs.
+- **DIP switches show the cape's physical switch state** only, no assigned
+  function.
+- **HALT/ENABLE holds last-known** during transitional moments.
 
 ## Open questions
 
-- RESTART's exact QBone mapping — is it a bare INIT pulse, or a reset that also
-  restarts the CPU from its power-up/boot sequence (INIT + continue)? Check the
-  11/03 manual's restart behaviour against QBone's `init`/`continue`.
-- HALT/ENABLE switch: it reflects live run state — what does it show when the
-  state is momentarily unknown or transitional (disabled, mid-position, spinner)?
-- Does the DC ON/OFF switch model a real power state QBone can be in (powered vs.
-  not), or is OFF→ON simply the powercycle action with no persistent "off" state?
-- The activity-LED / DIP-switch grid is a QBone display with no equivalent on the
-  real 11/03 bezel — does it stay as a separate element beside the 11/03-styled
-  control panel, or fold in? What do the DIP switches represent, and where does
-  their state come from?
-- Disk verbal status: exact mapping from device state to each word — what
-  distinguishes `ready` from `idle`, and `loaded` from `ready`?
-- LED colors: which devices/signals get which colors — the 11/03 photo anchors
-  the control-panel LEDs; what about the activity LEDs and status tiles?
+- The persistent power-off state needs QBone to hold an unpowered machine — does
+  the emulator support that today, or is it new backend work? What is dark/frozen
+  while off (console, device widgets, activity LEDs)?
+- Reading the cape DIP switch state for display — is it already exposed (a GPIO
+  read), or does that path need adding?
+- Disk verbal status: which device signals distinguish `loaded` (coming online)
+  from `ready` (available) — is there a spin-up/online state QBone exposes, or is
+  `loaded` momentary? (Non-spinning drives may never show `loaded`.)
 - VCB01 keyboard reliability is tracked separately in [vcb01.md](vcb01.md).

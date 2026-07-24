@@ -37,6 +37,7 @@ Status legend, shown at the top of each document:
 | VCB01 support | [vcb01.md](vcb01.md) | Gathering |
 | Logging control | [logging.md](logging.md) | Gathering |
 | MCP server | [mcp-server.md](mcp-server.md) | Gathering |
+| Device implementation standard | [device-implementation-standard.md](device-implementation-standard.md) | Standing |
 
 ## Cross-cutting dependencies
 

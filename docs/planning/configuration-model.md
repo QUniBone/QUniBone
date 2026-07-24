@@ -35,6 +35,10 @@ snapshots, which cannot express an edited-but-unsaved state.
   current config's last-saved form, the config is marked *modified*; the user
   clears it with **Save** (write back), **Save As** (new name), or **Revert**.
   Nothing auto-persists.
+- **A configuration captures the device set only.** Board-level settings (the
+  console bridge, `external_console=ttys2`, and other `settings.json` entries)
+  stay separate and are applied independently of which configuration is current,
+  so switching configurations never disturbs the `ttys2` console bridge.
 
 ## Open questions
 
@@ -47,7 +51,6 @@ snapshots, which cannot express an edited-but-unsaved state.
 - **Revert** restores the current config's saved form — does that re-apply it to
   the live machine (re-init devices), and what happens to a device that was added
   since the save?
-- How does this interact with `settings.json`, which the service applies on
-  startup today?
-- Relationship to `211bsd.json` and the existing config files — migration, or do
-  they become configurations in the new model as-is?
+- `211bsd.json` and the existing config files — do they become configurations in
+  the new model as-is, or need migration? (`211bsd.json` lists a DL11 that never
+  actually enables; a migration is a chance to drop it.)
