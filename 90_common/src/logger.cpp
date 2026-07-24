@@ -131,6 +131,11 @@ void logger_c::output_worker(void)
         }
         if (file_sink)
             fflush(file_sink);
+        // std::cout is fully buffered when the service's stdout is a pipe to
+        // journald, so unflushed lines never reach the journal until the block
+        // fills - the log then reads minutes behind reality. Flush once per
+        // drained batch, so entries appear as they happen without a per-line cost.
+        std::cout.flush();
 
         lock.lock();
         if (terminate && output_queue.empty())
