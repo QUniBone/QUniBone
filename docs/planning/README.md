@@ -27,7 +27,7 @@ Status legend, shown at the top of each document:
 
 | Area | Document | Status |
 |---|---|---|
-| Configuration model | [configuration-model.md](configuration-model.md) | Gathering |
+| Configuration model | [configuration-model.md](configuration-model.md) | Ready — [plan](../../configuration-model-plan.md) |
 | Web: configuration management | [web-config-management.md](web-config-management.md) | Gathering |
 | Web: dashboard | [web-dashboard.md](web-dashboard.md) | Gathering |
 | Web: navigation and URL state | [web-navigation.md](web-navigation.md) | Gathering |

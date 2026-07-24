@@ -1,6 +1,7 @@
 # Configuration model
 
-**Status:** Gathering
+**Status:** Ready — implementation plan drafted in
+[`configuration-model-plan.md`](../../configuration-model-plan.md).
 
 The concept of a *current configuration* as a first-class object, so the running
 machine's setup can be edited, saved back, named, and designated as the default.
@@ -24,6 +25,9 @@ snapshots, which cannot express an edited-but-unsaved state.
 - One configuration is the **designated default**, applied on startup.
 - The default is **protected from deletion** — the user must designate another
   default before deleting the current one, so a valid default always exists.
+- A bundled **empty configuration** (no devices) ships as the always-present
+  fallback default, so a board that has never had one set still has a valid
+  default to apply on startup.
 
 ## Decisions
 
@@ -42,9 +46,6 @@ snapshots, which cannot express an edited-but-unsaved state.
 
 ## Open questions
 
-- There must always be a default. How is the initial default established on a
-  board that has never had one set — a built-in fallback config, or first-run
-  setup?
 - The dirty/modified state must be exposed by the API for the UI to read. Is it
   computed by comparing live devices against the saved config, or tracked
   explicitly as edits happen?
