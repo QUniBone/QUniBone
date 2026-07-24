@@ -35,6 +35,7 @@ Status legend, shown at the top of each document:
 | Device metadata (friendly names) | [device-metadata.md](device-metadata.md) | Gathering |
 | Serial ports over TCP | [serial-ports.md](serial-ports.md) | Gathering |
 | VCB01 support | [vcb01.md](vcb01.md) | Gathering |
+| TMSCP tape controller | [tmscp-tape.md](tmscp-tape.md) | Gathering |
 | Logging control | [logging.md](logging.md) | Gathering |
 | RSX-11M+ over DELQA | [rsx-delqa.md](rsx-delqa.md) | Gathering |
 | MCP server | [mcp-server.md](mcp-server.md) | Gathering |
