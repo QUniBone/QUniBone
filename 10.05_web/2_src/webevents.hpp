@@ -18,6 +18,12 @@ void webevents_shutdown(void);
 // record a bus control action (init/powercycle/halt) for the state event
 void webevents_note_halt(bool halted);
 
+// Publish a config event now: the current/default configuration changed, or a
+// caller wants the modified flag re-evaluated. The 10 Hz poll also emits one
+// whenever the computed state flips, so this need only be called on the
+// explicit transitions (apply, save, default change, rename).
+void webevents_note_config(void);
+
 // current (soft) halt state, as last set via the control API
 bool webevents_is_halted(void);
 

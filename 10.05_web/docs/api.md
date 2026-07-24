@@ -152,11 +152,26 @@ A configuration is a named JSON snapshot of the device setup — every
 device's enabled state and writable parameter values — stored in
 `$QUNIBONE_DIR/configs/<name>.json`.
 
+The running machine always represents one named configuration, the **current**
+one. It is set to the **default** at startup and updated whenever a
+configuration is applied or the live setup is saved under a name. The machine is
+**modified** when the live device set differs from the saved form of the current
+configuration; this is computed by comparison, not tracked. The default is a
+board setting (in `settings.json`), applied at startup and protected from
+deletion. Configurations capture the device set only — the console bridge and
+other board settings stay separate, so switching configurations never disturbs
+them.
+
 ### `GET /api/configs`
 
 ```json
-[{"name": "rt11", "mtime": "2026-07-16 20:52", "enabled": ["RL11", "rl0"]}]
+{"current": "rt11", "default": "rt11", "modified": false,
+ "configs": [{"name": "rt11", "mtime": "2026-07-16 20:52",
+              "enabled": ["RL11", "rl0"], "default": true}]}
 ```
+
+`modified` is the live dirty state of the current configuration. It is omitted
+(the list still returns `200`) when the busy machine blocks the comparison.
 
 ### `GET /api/configs?current=1`
 
@@ -176,21 +191,52 @@ The full snapshot:
 
 ### `PUT /api/configs/<name>`
 
-Saves the current setup under `<name>` (no request body).
+Saves the current setup under `<name>` (no request body). Save and Save As are
+the same call. `<name>` becomes the current configuration, clearing `modified`.
 
 ### `POST /api/configs/<name>/apply`
 
-Restores the snapshot. Parameters are applied in stored order (controllers
-before their drives), unchanged values are skipped, rejections are
-collected:
+Restores the snapshot and makes `<name>` the current configuration. Parameters
+are applied in stored order (controllers before their drives), unchanged values
+are skipped, rejections are collected. A **Revert** is this call with the
+current name: it re-initialises the live machine to the saved device set,
+dropping any device enabled since the last save.
 
 ```json
 {"ok": true, "errors": []}
 ```
 
+### `POST /api/configs/<name>/rename`
+
+```json
+{"name": "<new>"}
+```
+
+Renames the file. If `<name>` is the current or the default, those pointers
+follow. Refused with `409` when the target name already exists or is invalid.
+The live device set is untouched, so a machine modified against `<name>` stays
+modified against the new name. Answers `{"ok": true}`.
+
+### `PUT /api/configs/<name>/default`
+
+Designates `<name>` the startup default, writing `settings.json`. Answers
+`{"ok": true}`; `404` for an unknown configuration.
+
 ### `DELETE /api/configs/<name>`
 
-Removes the snapshot.
+Removes the snapshot. Refused with `409` when `<name>` is the current
+configuration or the default — switch the current away, or designate a
+different default, first.
+
+### `PUT /api/configs/<name>/devices/<device>/image`
+
+```json
+{"value": "<image>"}
+```
+
+Sets the medium a drive in the stored configuration starts with, without
+disturbing the running machine. An empty value detaches. Refused with `409`
+when another drive in the same configuration already names the file.
 
 ## WebSockets
 
@@ -203,6 +249,7 @@ Text frames, one JSON event each, pushed to every connected client:
 | `{"t":"param","dev":…,"param":…,"value":…}` | committed parameter change (includes enable/disable, image attach, panel lamps) |
 | `{"t":"log","level":n,"label":…,"text":…}` | log message; levels 1 FATAL … 5 DEBUG |
 | `{"t":"state","halt":…,"leds":[…],"switches":[…],"init":…,"dcok":…,"pok":…}` | activity LEDs, DIP switches, HALT, bus INIT/DCOK/POK — published on change (10 Hz poll); a full snapshot opens every connection |
+| `{"t":"config","current":…,"default":…,"modified":…}` | current/default configuration and the live modified flag — published on apply, save, default change, rename, and whenever the modified flag flips (10 Hz poll); a snapshot opens every connection |
 
 ### `/ws/console/0`, `/ws/console/1`
 

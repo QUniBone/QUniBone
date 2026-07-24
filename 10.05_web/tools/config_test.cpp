@@ -1,0 +1,356 @@
+/* config_test.cpp: host test of the configuration model (webconfigs.cpp)
+
+   Copyright (c) 2026, Hans Huebner
+   hans@huebner.org
+   MIT license, see any source file header for the full text.
+
+   The configuration model operates on the device_c / parameter_c abstraction,
+   not on the PRU, so it is testable on the development host over a synthetic
+   device set. This links the real webconfigs.cpp against:
+
+     - the real parameter.cpp / bitcalc.cpp (typed parameters),
+     - a handful of stub device_c instances with real parameter_c members,
+     - lightweight stubs for the pieces webconfigs only names in a dynamic_cast
+       (bus adapter, panel, MSCP server) or a persistence backend (websettings's
+       default_config, the event hook, the image-path resolver).
+
+   The model functions are driven directly, without civetweb: civetweb.o is
+   linked only so the (unused) HTTP handlers resolve.
+
+   Build & run: 10.05_web/tools/run_config_test.sh
+*/
+
+#include <algorithm>
+#include <fstream>
+#include <list>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#include "picojson.h"
+
+#include "logger.hpp"
+#include "logsource.hpp"
+#include "device.hpp"
+#include "parameter.hpp"
+
+#include "device_configuration.hpp"
+#include "webconfigs.hpp"
+#include "websettings.hpp"
+#include "webevents.hpp"
+#include "webstorage.hpp"
+
+/*** logger / logsource stubs: quiet unless something logs an error ***/
+logger_c *logger = nullptr;
+
+logger_c::logger_c() {
+	fifo = nullptr;
+	fifo_capacity = fifo_readidx = fifo_writeidx = fifo_fill = 0;
+	messagecount = 0;
+	life_level = LL_ERROR;
+}
+logger_c::~logger_c() {}
+void logger_c::vlog(logsource_c *logsource, unsigned msglevel, bool,
+		const char *, unsigned, const char *fmt, va_list args) {
+	fprintf(stderr, "[%s %u] ", logsource->log_label.c_str(), msglevel);
+	vfprintf(stderr, fmt, args);
+	fprintf(stderr, "\n");
+}
+
+logsource_c::logsource_c() {
+	log_level = LL_ERROR; // suppress INFO/WARNING chatter from the model
+	log_level_ptr = &log_level;
+	log_id = 0;
+}
+logsource_c::~logsource_c() {}
+void logsource_c::connect() {}
+void logsource_c::disconnect() {}
+
+/*** device_c: a hardware-free stand-in that keeps the parameter machinery but
+     starts no worker threads. Mirrors the real constructor's parameter
+     registration so a snapshot sees the same built-in parameters. ***/
+std::list<device_c *> device_c::mydevices;
+std::mutex device_c::mydevices_mutex;
+
+device_c::device_c() {
+	{
+		std::lock_guard<std::mutex> lock(mydevices_mutex);
+		mydevices.push_back(this);
+	}
+	parent = NULL;
+	workers_terminate = false;
+	name.parameterized = this;
+	type_name.parameterized = this;
+	enabled.parameterized = this;
+	verbosity.parameterized = this;
+	enabled.value = false;
+	param_add(&name);
+	param_add(&type_name);
+	param_add(&enabled);
+	param_add(&emulation_speed);
+	param_add(&verbosity);
+	emulation_speed.value = 1;
+	init_asserted = false;
+	log_label = name.value;
+	log_level_ptr = &(verbosity.value);
+}
+
+device_c::~device_c() {
+	parameter.clear();
+	std::lock_guard<std::mutex> lock(mydevices_mutex);
+	std::list<device_c *>::iterator p = std::find(mydevices.begin(), mydevices.end(), this);
+	if (p != mydevices.end())
+		mydevices.erase(p);
+}
+
+// The real device starts/stops workers here; the stub just accepts the value.
+bool device_c::on_param_changed(parameter_c *) {
+	return true;
+}
+
+/*** the pieces webconfigs.cpp links against, reduced to what it uses ***/
+std::mutex device_configuration_c::operations_mutex;
+
+static std::string g_default_config; // stands in for settings.json default_config
+std::string websettings_default_config(void) { return g_default_config; }
+void websettings_set_default_config(const std::string &name) { g_default_config = name; }
+
+void webevents_note_config(void) {} // the event stream is not part of this test
+
+std::string webstorage_image_path(const std::string &name) { return name; }
+
+/*** a synthetic device: the standard built-ins plus a disk image and an
+     address, the writable parameters a configuration snapshot captures ***/
+struct test_device_c : public device_c {
+	parameter_string_c image = parameter_string_c(this, "image", "img", false,
+			"disk image");
+	parameter_unsigned_c address = parameter_unsigned_c(this, "address", "addr",
+			false, "", "%o", "controller address", 18, 8);
+
+	test_device_c(const char *nm, const char *ty) {
+		name.value = nm;
+		type_name.value = ty;
+	}
+	void on_power_changed(signal_edge_enum, signal_edge_enum) override {}
+	void on_init_changed(void) override {}
+};
+
+static test_device_c *rl, *rl0, *rl1, *dl;
+
+static void reset_devices(void) {
+	for (device_c *d : device_c::mydevices) {
+		d->enabled.value = false;
+		test_device_c *t = dynamic_cast<test_device_c *>(d);
+		if (t != nullptr) {
+			t->image.set("");
+			t->address.set(0);
+		}
+	}
+}
+
+/*** test scaffolding ***/
+static int failures = 0;
+static int checks = 0;
+
+static void check(bool ok, const char *what) {
+	checks++;
+	if (!ok) {
+		failures++;
+		fprintf(stderr, "FAIL: %s\n", what);
+	}
+}
+
+static std::string configs_dir;
+static std::string cfg_path(const std::string &name) {
+	return configs_dir + "/" + name + ".json";
+}
+static bool file_exists(const std::string &path) {
+	struct stat st;
+	return stat(path.c_str(), &st) == 0;
+}
+static bool read_json_file(const std::string &path, picojson::value *out) {
+	std::ifstream in(path.c_str());
+	if (!in.is_open())
+		return false;
+	std::stringstream ss;
+	ss << in.rdbuf();
+	return picojson::parse(*out, ss.str()).empty();
+}
+
+// the entry for device "name" in a saved snapshot, or nullptr
+static const picojson::value *snap_device(const picojson::value &snap,
+		const std::string &name) {
+	if (!snap.get("devices").is<picojson::array>())
+		return nullptr;
+	const picojson::array &devs = snap.get("devices").get<picojson::array>();
+	for (const picojson::value &d : devs)
+		if (d.get("name").is<std::string>() && d.get("name").get<std::string>() == name)
+			return &d;
+	return nullptr;
+}
+
+static bool modified_now(void) {
+	bool m = false, busy = false;
+	webconfigs_status(nullptr, nullptr, &m, &busy);
+	check(!busy, "machine not busy for modified check");
+	return m;
+}
+
+int main(void) {
+	logger = new logger_c();
+
+	char tmpl[] = "/tmp/qbone_cfgtest_XXXXXX";
+	char *dir = mkdtemp(tmpl);
+	if (dir == nullptr) {
+		perror("mkdtemp");
+		return 2;
+	}
+	configs_dir = std::string(dir) + "/configs";
+
+	// Devices exist before init so their construction-time values are captured
+	// as the defaults an apply resets to.
+	rl = new test_device_c("rl", "RL11");
+	rl0 = new test_device_c("rl0", "RL02");
+	rl1 = new test_device_c("rl1", "RL02");
+	dl = new test_device_c("dl", "DL11");
+
+	webconfigs_init(configs_dir);
+
+	/* 1. save captures the enabled devices and only their non-default params */
+	reset_devices();
+	rl->enabled.value = true;
+	rl0->enabled.value = true;
+	rl0->image.set("rt11.rl02");
+	{
+		std::string err;
+		check(webconfigs_save("cfgA", &err), "save cfgA");
+		check(webconfigs_current() == "cfgA", "save makes cfgA current");
+
+		picojson::value snap;
+		check(read_json_file(cfg_path("cfgA"), &snap), "cfgA file written");
+		check(snap_device(snap, "rl") != nullptr, "cfgA has enabled rl");
+		check(snap_device(snap, "rl0") != nullptr, "cfgA has enabled rl0");
+		check(snap_device(snap, "rl1") == nullptr, "cfgA omits disabled rl1");
+		check(snap_device(snap, "dl") == nullptr, "cfgA omits disabled dl");
+		const picojson::value *d0 = snap_device(snap, "rl0");
+		if (d0 != nullptr) {
+			const picojson::object &p = d0->get("params").get<picojson::object>();
+			check(p.count("image") == 1 && p.at("image").get<std::string>() == "rt11.rl02",
+					"cfgA rl0 keeps the non-default image");
+		}
+		const picojson::value *dctrl = snap_device(snap, "rl");
+		if (dctrl != nullptr)
+			check(dctrl->get("params").get<picojson::object>().count("address") == 0,
+					"cfgA rl omits the default address");
+	}
+
+	/* 2. apply switches off unnamed devices, resets to defaults, sets current */
+	rl1->enabled.value = true;
+	rl1->image.set("games.rl02");
+	rl0->image.set("scratch.rl02"); // diverge before restoring
+	{
+		std::vector<std::string> rej;
+		std::string err;
+		check(webconfigs_apply("cfgA", &rej, &err), "apply cfgA");
+		check(webconfigs_current() == "cfgA", "apply sets cfgA current");
+		check(rl->enabled.value, "apply keeps rl enabled");
+		check(rl0->enabled.value, "apply keeps rl0 enabled");
+		check(!rl1->enabled.value, "apply switches rl1 off (unnamed)");
+		check(rl1->image.value == "", "apply resets rl1 image to default");
+		check(rl0->image.value == "rt11.rl02", "apply restores rl0 image");
+	}
+
+	/* 3. modified is false after apply/save, true after a parameter change */
+	check(!modified_now(), "not modified right after apply");
+	rl0->image.set("edited.rl02");
+	check(modified_now(), "modified after a parameter change");
+	{
+		std::vector<std::string> rej;
+		std::string err;
+		check(webconfigs_apply("cfgA", &rej, &err), "revert via apply(current)");
+		check(!modified_now(), "not modified after revert");
+	}
+
+	/* 4. rename moves the file and carries the current/default pointers; the
+	      live dirty state is unaffected */
+	{
+		std::string err;
+		check(webconfigs_set_default("cfgA", &err), "designate cfgA default");
+		check(websettings_default_config() == "cfgA", "cfgA is default");
+	}
+	rl0->image.set("dirty.rl02"); // make the machine modified against cfgA
+	check(modified_now(), "modified before rename");
+	{
+		std::string err;
+		check(webconfigs_rename("cfgA", "cfgB", &err), "rename cfgA to cfgB");
+		check(!file_exists(cfg_path("cfgA")), "cfgA file gone after rename");
+		check(file_exists(cfg_path("cfgB")), "cfgB file present after rename");
+		check(webconfigs_current() == "cfgB", "current follows rename");
+		check(websettings_default_config() == "cfgB", "default follows rename");
+		check(modified_now(), "still modified against the renamed config");
+	}
+	{
+		std::vector<std::string> rej;
+		std::string err;
+		webconfigs_apply("cfgB", &rej, &err); // clean the machine again
+	}
+
+	/* 5. delete refuses the current and the default */
+	{
+		std::string err;
+		int status = 0;
+		// cfgB is both current and default
+		check(!webconfigs_delete("cfgB", &err, &status), "delete refuses current");
+		check(status == 409, "delete of current answers 409");
+
+		// make cfgC the current, leaving cfgB the default
+		rl0->image.set("c.rl02");
+		check(webconfigs_save("cfgC", &err), "save cfgC");
+		check(webconfigs_current() == "cfgC", "cfgC current");
+		status = 0;
+		check(!webconfigs_delete("cfgB", &err, &status), "delete refuses default");
+		check(status == 409, "delete of default answers 409");
+
+		/* 6. default protection: reassign, then the old default can go */
+		check(webconfigs_set_default("cfgC", &err), "designate cfgC default");
+		status = 0;
+		check(webconfigs_delete("cfgB", &err, &status), "delete cfgB once neither current nor default");
+		check(!file_exists(cfg_path("cfgB")), "cfgB removed");
+	}
+
+	/* 7. startup applies the default; a missing default adopts the fallback */
+	websettings_set_default_config(""); // pretend a board that never set one
+	webconfigs_startup("");
+	check(websettings_default_config() == "default", "missing default adopts the fallback name");
+	check(webconfigs_current() == "default", "startup makes the fallback current");
+	check(file_exists(cfg_path("default")), "fallback default.json written");
+	check(!rl->enabled.value && !rl0->enabled.value, "empty fallback switches everything off");
+
+	// a set default is applied and made current
+	{
+		std::string err;
+		check(webconfigs_set_default("cfgC", &err), "designate cfgC default for restart");
+	}
+	webconfigs_startup("");
+	check(webconfigs_current() == "cfgC", "startup applies the designated default");
+	check(websettings_default_config() == "cfgC", "default unchanged by startup");
+
+	// --config overrides the default without changing it
+	webconfigs_startup("default");
+	check(webconfigs_current() == "default", "--config overrides the default");
+	check(websettings_default_config() == "cfgC", "override leaves the default alone");
+
+	// tidy the temp tree
+	for (const char *n : {"cfgA", "cfgB", "cfgC", "default"})
+		unlink(cfg_path(n).c_str());
+	rmdir(configs_dir.c_str());
+	rmdir(dir);
+
+	printf("%d checks, %d failures\n", checks, failures);
+	return failures == 0 ? 0 : 1;
+}

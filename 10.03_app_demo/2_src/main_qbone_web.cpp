@@ -140,24 +140,12 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	// The machine a board comes up as is a saved configuration, applied here.
-	// It is applied after the server has started, because registering the
-	// endpoints is what locates the configuration directory and captures the
-	// parameter defaults an apply resets to.
-	if (!startup_config.empty()) {
-		std::vector<std::string> rejections;
-		std::string error;
-		if (!webconfigs_apply(startup_config, &rejections, &error))
-			WEB_ERROR("Startup configuration \"%s\" not applied: %s",
-					startup_config.c_str(), error.c_str());
-		else {
-			for (const std::string &r : rejections)
-				WEB_WARNING("Startup configuration \"%s\": %s",
-						startup_config.c_str(), r.c_str());
-			WEB_INFO("Startup configuration \"%s\" applied, %u rejections.",
-					startup_config.c_str(), (unsigned) rejections.size());
-		}
-	}
+	// The machine a board comes up as is the designated default configuration,
+	// applied here. It is applied after the server has started, because
+	// registering the endpoints is what locates the configuration directory and
+	// captures the parameter defaults an apply resets to. --config overrides the
+	// default for bring-up and testing.
+	webconfigs_startup(startup_config);
 
 	WEB_INFO(QUNIBONE_NAME " ready. Every operator action arrives through the web interface.");
 

@@ -212,9 +212,13 @@ static const char *fixture_config_xxdp =
 	"{\"name\":\"rl0\",\"enabled\":true,\"params\":{\"image\":\"xxdp25.rl02\"}},"
 	"{\"name\":\"DL11\",\"enabled\":true,\"params\":{\"serialport\":\"ttyS2\"}}"
 	"]}";
+// the object form: current/default pointers, the live modified flag, and the
+// saved configurations. The live setup matches "rt11", so it is current and
+// unmodified; "rt11" is also the default.
 static const char *fixture_configs_list =
-	"[{\"name\":\"rt11\",\"mtime\":\"2026-07-19 09:12\",\"enabled\":[\"rl\",\"rl0\",\"rl1\",\"DL11\",\"delqa\"]},"
-	"{\"name\":\"xxdp\",\"mtime\":\"2026-07-18 21:40\",\"enabled\":[\"rl\",\"rl0\",\"DL11\"]}]";
+	"{\"current\":\"rt11\",\"default\":\"rt11\",\"modified\":false,\"configs\":["
+	"{\"name\":\"rt11\",\"mtime\":\"2026-07-19 09:12\",\"default\":true,\"enabled\":[\"rl\",\"rl0\",\"rl1\",\"DL11\",\"delqa\"]},"
+	"{\"name\":\"xxdp\",\"mtime\":\"2026-07-18 21:40\",\"default\":false,\"enabled\":[\"rl\",\"rl0\",\"DL11\"]}]}";
 
 // GET /api/configs[?current=1], GET/PUT/DELETE /api/configs/<name>,
 // POST /api/configs/<name>/apply

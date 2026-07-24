@@ -39,6 +39,7 @@
 #include "qunibusadapter.hpp"
 
 #include "webevents.hpp"
+#include "webconfigs.hpp"
 
 // clients, guarded by clients_mutex; writes only from the broadcast thread
 static std::mutex clients_mutex;
@@ -78,8 +79,7 @@ static std::string state_json(void) {
 	return picojson::value(event).serialize();
 }
 
-static void enqueue(const picojson::object &event) {
-	std::string msg = picojson::value(event).serialize();
+static void enqueue_str(const std::string &msg) {
 	{
 		std::lock_guard<std::mutex> lock(queue_mutex);
 		if (queue.size() >= queue_max)
@@ -87,6 +87,57 @@ static void enqueue(const picojson::object &event) {
 		queue.push_back(msg);
 	}
 	queue_cv.notify_one();
+}
+
+static void enqueue(const picojson::object &event) {
+	enqueue_str(picojson::value(event).serialize());
+}
+
+// last published configuration state, guarded by config_mutex; the poll and
+// the explicit transitions both diff against it so an event is sent only on a
+// real change
+static std::mutex config_mutex;
+static bool config_known = false;
+static std::string config_current, config_default;
+static bool config_modified = false;
+
+// caller holds config_mutex
+static std::string config_json_locked(void) {
+	picojson::object event;
+	event["t"] = picojson::value("config");
+	event["current"] = picojson::value(config_current);
+	event["default"] = picojson::value(config_default);
+	event["modified"] = picojson::value(config_modified);
+	return picojson::value(event).serialize();
+}
+
+// Recompute the configuration state and, when it differs from what was last
+// published (or force), enqueue a config event. A busy machine leaves the
+// modified flag at its last value rather than flapping it.
+static void publish_config(bool force) {
+	std::string current, def;
+	bool modified = false, busy = false;
+	webconfigs_status(&current, &def, &modified, &busy);
+	std::string msg;
+	{
+		std::lock_guard<std::mutex> lock(config_mutex);
+		bool changed = force || !config_known
+				|| current != config_current || def != config_default
+				|| (!busy && modified != config_modified);
+		config_current = current;
+		config_default = def;
+		if (!busy)
+			config_modified = modified;
+		config_known = true;
+		if (!changed)
+			return;
+		msg = config_json_locked();
+	}
+	enqueue_str(msg);
+}
+
+void webevents_note_config(void) {
+	publish_config(true);
 }
 
 // typed value serialization, same shape as the REST snapshot
@@ -225,6 +276,7 @@ static void broadcast_loop(void) {
 			break;
 		poll_hardware();
 		poll_lamps();
+		publish_config(false); // emit a config event when the modified flag flips
 		if (batch.empty())
 			continue;
 		std::lock_guard<std::mutex> lock(clients_mutex);
@@ -255,9 +307,20 @@ static void ws_ready_handler(struct mg_connection *conn, void *) {
 		std::lock_guard<std::mutex> lock(state_mutex);
 		snapshot = state_json();
 	}
+	// the current configuration opens the stream beside the hardware state, so
+	// a fresh page shows which configuration is loaded and whether it is edited
+	std::string config;
+	{
+		std::lock_guard<std::mutex> lock(config_mutex);
+		if (config_known)
+			config = config_json_locked();
+	}
 	std::lock_guard<std::mutex> lock(clients_mutex);
 	mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_TEXT, snapshot.c_str(),
 			snapshot.size());
+	if (!config.empty())
+		mg_websocket_write(conn, MG_WEBSOCKET_OPCODE_TEXT, config.c_str(),
+				config.size());
 	clients.insert(conn);
 }
 

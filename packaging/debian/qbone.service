@@ -18,10 +18,10 @@ WorkingDirectory=/var/lib/bone
 # a remoteproc device before starting.
 ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 100 ]; do [ -e /sys/bus/platform/devices/4a334000.pru/remoteproc ] && [ -e /sys/bus/platform/devices/4a338000.pru/remoteproc ] && exit 0; i=$((i+1)); sleep 0.2; done; echo "PRU cores did not appear under remoteproc" >&2; exit 1'
 
-# The machine the board comes up as is a saved configuration: add
-# "--config <name>" to apply one at startup, e.g. to give the DELQA the host
-# interface it bridges through. Configurations are saved from the web
-# interface and live in /var/lib/bone/configs.
+# The machine the board comes up as is the configuration designated the default
+# through the web interface, applied at startup. Configurations are saved from
+# the web interface and live in /var/lib/bone/configs. "--config <name>"
+# overrides the default for bring-up and testing.
 ExecStart=/usr/bin/qbone --port 80 --webroot /usr/share/bone/frontend \
     --addresswidth 22
 # The bus engine runs at realtime priority and the PRU driver wants physical

@@ -13,6 +13,16 @@ on:
   workflow_dispatch:
 
 jobs:
+  config-test:
+    # Host test of the web service's configuration model: builds webconfigs.cpp
+    # against a synthetic device set and drives the model, no BeagleBone and no
+    # cross toolchain. The first automated API test.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run the configuration-model host test
+        run: ./10.05_web/tools/run_config_test.sh
+
   package:
     runs-on: ubuntu-latest
     strategy:

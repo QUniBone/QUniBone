@@ -14,15 +14,28 @@
    switches off every device it does not name and returns every parameter it
    does not name to that construction default.
 
-     GET    /api/configs               list: name, mtime, enabled devices
+   The running machine always represents one named configuration, the
+   *current* one: a runtime pointer set to the default at startup and updated
+   whenever a configuration is applied or the live setup is saved under a name.
+   The machine is *modified* when the live device set differs from the saved
+   form of the current configuration; this is computed by comparison, not
+   tracked at write time. The *default* configuration, applied at startup,
+   lives in settings.json (websettings.cpp), separate from the configurations.
+
+     GET    /api/configs               {current, default, modified, configs[]}
      GET    /api/configs?current=1     the live setup in snapshot form, for
                                        comparison against the saved ones;
                                        503 while the machine is busy
      GET    /api/configs/<name>        full snapshot content
-     PUT    /api/configs/<name>        save the current setup under <name>
+     PUT    /api/configs/<name>        save the current setup under <name>,
+                                       which becomes the current configuration
      POST   /api/configs/<name>/apply  restore a snapshot (best effort,
-                                       returns the rejections)
-     DELETE /api/configs/<name>        remove a snapshot
+                                       returns the rejections); sets current
+     POST   /api/configs/<name>/rename {"name":"<new>"} rename the file; the
+                                       current/default pointers follow
+     PUT    /api/configs/<name>/default   designate <name> the startup default
+     DELETE /api/configs/<name>        remove a snapshot; refused (409) for the
+                                       current or the default configuration
      PUT    /api/configs/<name>/devices/<device>/image   {"value": "<image>"}
                                        the medium that drive starts with
 
@@ -62,8 +75,21 @@
 #include "weblog.hpp"
 #include "webconfigs.hpp"
 #include "webstorage.hpp"
+#include "websettings.hpp"
+#include "webevents.hpp"
 
 static std::string configs_dir;
+
+// The running machine represents this saved configuration. A runtime pointer,
+// re-established from the default at every startup; never persisted here (the
+// default lives in settings.json). Guarded, with the cached modified flag, by
+// a small dedicated mutex so a status poll never contends with an apply.
+static std::mutex current_mutex;
+static std::string current_config_name;
+static bool cached_modified = false;
+
+// the bundled empty configuration, adopted as the default on first run
+static const char *fallback_config_name = "default";
 
 static bool valid_config_name(const std::string &name) {
 	if (name.empty() || name.size() > 64)
@@ -233,6 +259,91 @@ static bool read_config(const std::string &name, picojson::value *out,
 	return true;
 }
 
+// the saved device set of a configuration; false when the file is missing or
+// unreadable, or names no devices
+static bool read_config_devices(const std::string &name, picojson::value *out) {
+	std::string err;
+	return read_config(name, out, &err)
+			&& out->get("devices").is<picojson::array>();
+}
+
+// A snapshot reduced to a name-keyed map of {enabled, params}, so two
+// configurations compare equal whatever order their device arrays hold. Both
+// the live snapshot and a saved file derive from registry order, but a
+// hand-edited file need not, and the modified flag must not turn on that.
+static picojson::value canonical(const picojson::value &snapshot) {
+	picojson::object by_name;
+	if (snapshot.get("devices").is<picojson::array>())
+		for (const picojson::value &d : snapshot.get("devices").get<picojson::array>()) {
+			if (!d.get("name").is<std::string>())
+				continue;
+			picojson::object e;
+			e["enabled"] = d.get("enabled").is<bool>()
+					? picojson::value(d.get("enabled").get<bool>())
+					: picojson::value(true);
+			e["params"] = d.get("params").is<picojson::object>()
+					? d.get("params") : picojson::value(picojson::object());
+			by_name[d.get("name").get<std::string>()] = picojson::value(e);
+		}
+	return picojson::value(by_name);
+}
+
+std::string webconfigs_current(void) {
+	std::lock_guard<std::mutex> lock(current_mutex);
+	return current_config_name;
+}
+
+// true when the live machine differs from the saved form of the current
+// configuration. *busy is set, and the result is not meaningful, when the
+// machine could not be sampled within the deadline.
+static bool compute_modified(bool *busy, unsigned timeout_ms) {
+	if (busy != nullptr)
+		*busy = false;
+	std::string current = webconfigs_current();
+	picojson::value live;
+	if (!snapshot_devices_now(&live, timeout_ms)) {
+		if (busy != nullptr)
+			*busy = true;
+		return false;
+	}
+	picojson::value saved;
+	if (!read_config_devices(current, &saved))
+		return true; // no saved form to match: the live setup counts as edited
+	return !(canonical(live) == canonical(saved));
+}
+
+void webconfigs_status(std::string *current, std::string *def, bool *modified,
+		bool *busy) {
+	if (current != nullptr)
+		*current = webconfigs_current();
+	if (def != nullptr)
+		*def = websettings_default_config();
+	bool b = false;
+	// The event poll runs this at 10 Hz, so it gives up quickly rather than
+	// stalling the broadcast thread behind an apply; the apply publishes the
+	// cleared flag itself once it releases the lock.
+	bool m = compute_modified(&b, 20);
+	if (busy != nullptr)
+		*busy = b;
+	if (modified != nullptr)
+		*modified = b ? cached_modified : m;
+	if (!b) {
+		std::lock_guard<std::mutex> lock(current_mutex);
+		cached_modified = m;
+	}
+}
+
+// Point the current configuration at <name> and tell the event stream. A
+// no-op publish is harmless: the event carries the recomputed modified flag,
+// which an apply or save has just cleared.
+static void set_current(const std::string &name) {
+	{
+		std::lock_guard<std::mutex> lock(current_mutex);
+		current_config_name = name;
+	}
+	webevents_note_config();
+}
+
 // read and parse a JSON object request body
 static bool read_json_body(struct mg_connection *conn, picojson::value *out) {
 	char body[4096];
@@ -298,8 +409,11 @@ std::string webconfigs_image_referenced(const std::string &image_name) {
 	return uses.empty() ? "" : uses[0].config;
 }
 
-// GET /api/configs
-static void configs_list(struct mg_connection *conn) {
+// The object form of GET /api/configs: the current/default pointers, the live
+// modified flag (omitted when the busy machine blocks its comparison), and the
+// saved configurations with their enabled-device summary.
+static picojson::value configs_list_value(void) {
+	std::string def = websettings_default_config();
 	picojson::array configs;
 	DIR *dir = opendir(configs_dir.c_str());
 	if (dir != nullptr) {
@@ -318,6 +432,7 @@ static void configs_list(struct mg_connection *conn) {
 			strftime(mtime, sizeof(mtime), "%Y-%m-%d %H:%M",
 					localtime(&st.st_mtime));
 			o["mtime"] = picojson::value(mtime);
+			o["default"] = picojson::value(name == def);
 			// the enabled devices, as the card summary
 			picojson::value content;
 			std::string err;
@@ -331,20 +446,53 @@ static void configs_list(struct mg_connection *conn) {
 		}
 		closedir(dir);
 	}
-	send_json(conn, 200, picojson::value(configs));
+	picojson::object root;
+	root["current"] = picojson::value(webconfigs_current());
+	root["default"] = picojson::value(def);
+	bool busy = false;
+	bool modified = compute_modified(&busy, 500);
+	if (!busy) {
+		root["modified"] = picojson::value(modified);
+		std::lock_guard<std::mutex> lock(current_mutex);
+		cached_modified = modified;
+	}
+	root["configs"] = picojson::value(configs);
+	return picojson::value(root);
 }
 
-// PUT /api/configs/<name> — save the current setup
-static void config_save(struct mg_connection *conn, const std::string &name) {
+std::string webconfigs_list_json(void) {
+	return configs_list_value().serialize();
+}
+
+// GET /api/configs
+static void configs_list(struct mg_connection *conn) {
+	send_json(conn, 200, configs_list_value());
+}
+
+// Save the live setup under <name> and make it the current configuration,
+// which clears the modified state. Save and Save As are the same operation.
+bool webconfigs_save(const std::string &name, std::string *error) {
 	std::string body = snapshot_devices().serialize();
 	std::ofstream out(config_path(name).c_str());
 	if (!out.is_open()) {
-		send_error(conn, 500, "cannot write configuration \"" + name + "\"");
-		return;
+		if (error != nullptr)
+			*error = "cannot write configuration \"" + name + "\"";
+		return false;
 	}
 	out << body;
 	out.close();
 	WEB_INFO("configuration \"%s\" saved", name.c_str());
+	set_current(name);
+	return true;
+}
+
+// PUT /api/configs/<name> — save the current setup
+static void config_save(struct mg_connection *conn, const std::string &name) {
+	std::string error;
+	if (!webconfigs_save(name, &error)) {
+		send_error(conn, 500, error);
+		return;
+	}
 	picojson::object res;
 	res["ok"] = picojson::value(true);
 	send_json(conn, 200, picojson::value(res));
@@ -531,7 +679,9 @@ static bool apply_config(const std::string &name, picojson::array *errors,
 	return true;
 }
 
-// POST /api/configs/<name>/apply
+// POST /api/configs/<name>/apply — sets the current configuration. A Revert is
+// this call with the current name: it re-initialises the live machine to the
+// saved device set, dropping any device enabled since the last save.
 static void config_apply(struct mg_connection *conn, const std::string &name) {
 	picojson::array errors;
 	std::string error;
@@ -539,6 +689,7 @@ static void config_apply(struct mg_connection *conn, const std::string &name) {
 		send_error(conn, 404, error);
 		return;
 	}
+	set_current(name);
 	picojson::object res;
 	res["ok"] = picojson::value(errors.empty());
 	res["errors"] = picojson::value(errors);
@@ -550,10 +701,137 @@ bool webconfigs_apply(const std::string &name, std::vector<std::string> *rejecti
 	picojson::array errors;
 	if (!apply_config(name, &errors, error))
 		return false;
+	set_current(name);
 	if (rejections != nullptr)
 		for (picojson::value &e : errors)
 			rejections->push_back(e.is<std::string>() ? e.get<std::string>() : "?");
 	return true;
+}
+
+// Rename the file, and let the current/default pointers follow it. It is a
+// file/metadata operation only: the live device set is untouched, so a machine
+// modified against <from> stays modified against <to>.
+bool webconfigs_rename(const std::string &from, const std::string &to,
+		std::string *error) {
+	if (!valid_config_name(from) || !valid_config_name(to)) {
+		if (error != nullptr)
+			*error = "invalid configuration name";
+		return false;
+	}
+	struct stat st;
+	if (stat(config_path(from).c_str(), &st) != 0) {
+		if (error != nullptr)
+			*error = "unknown configuration \"" + from + "\"";
+		return false;
+	}
+	if (stat(config_path(to).c_str(), &st) == 0) {
+		if (error != nullptr)
+			*error = "configuration \"" + to + "\" already exists";
+		return false;
+	}
+	if (::rename(config_path(from).c_str(), config_path(to).c_str()) != 0) {
+		if (error != nullptr)
+			*error = "cannot rename configuration \"" + from + "\"";
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> lock(current_mutex);
+		if (current_config_name == from)
+			current_config_name = to;
+	}
+	if (websettings_default_config() == from)
+		websettings_set_default_config(to);
+	WEB_INFO("configuration \"%s\" renamed to \"%s\"", from.c_str(), to.c_str());
+	webevents_note_config(); // current and/or default may now name <to>
+	return true;
+}
+
+// Remove a configuration. The current and the default are protected: a valid
+// default must always exist, and the current names the running machine. On
+// refusal *status is 409, on an unknown name 404.
+bool webconfigs_delete(const std::string &name, std::string *error, int *status) {
+	if (name == webconfigs_current()) {
+		if (error != nullptr)
+			*error = "configuration \"" + name
+					+ "\" is the current one; switch to another first";
+		if (status != nullptr)
+			*status = 409;
+		return false;
+	}
+	if (name == websettings_default_config()) {
+		if (error != nullptr)
+			*error = "configuration \"" + name
+					+ "\" is the default; designate another first";
+		if (status != nullptr)
+			*status = 409;
+		return false;
+	}
+	if (unlink(config_path(name).c_str()) != 0) {
+		if (error != nullptr)
+			*error = "unknown configuration \"" + name + "\"";
+		if (status != nullptr)
+			*status = 404;
+		return false;
+	}
+	WEB_INFO("configuration \"%s\" deleted", name.c_str());
+	return true;
+}
+
+// Designate <name> the startup default, persisting settings.json.
+bool webconfigs_set_default(const std::string &name, std::string *error) {
+	struct stat st;
+	if (!valid_config_name(name) || stat(config_path(name).c_str(), &st) != 0) {
+		if (error != nullptr)
+			*error = "unknown configuration \"" + name + "\"";
+		return false;
+	}
+	websettings_set_default_config(name);
+	WEB_INFO("configuration \"%s\" is now the default", name.c_str());
+	webevents_note_config();
+	return true;
+}
+
+// Ensure the bundled empty configuration exists, writing it if absent. Never
+// overwrites an operator's file.
+static void ensure_fallback_config(void) {
+	struct stat st;
+	if (stat(config_path(fallback_config_name).c_str(), &st) == 0)
+		return;
+	std::ofstream out(config_path(fallback_config_name).c_str());
+	if (out.is_open())
+		out << "{\"devices\":[]}";
+}
+
+void webconfigs_startup(const std::string &override_config) {
+	// --config is an explicit override for bring-up and testing; otherwise the
+	// machine comes up as the designated default.
+	std::string name = override_config;
+	if (name.empty()) {
+		name = websettings_default_config();
+		struct stat st;
+		// unset, or naming a file that is gone: adopt the bundled empty config
+		// and record it, so a valid default always exists thereafter.
+		if (name.empty() || !valid_config_name(name)
+				|| stat(config_path(name).c_str(), &st) != 0) {
+			ensure_fallback_config();
+			name = fallback_config_name;
+			websettings_set_default_config(name);
+		}
+	}
+	std::vector<std::string> rejections;
+	std::string error;
+	if (!webconfigs_apply(name, &rejections, &error)) {
+		WEB_ERROR("Startup configuration \"%s\" not applied: %s",
+				name.c_str(), error.c_str());
+		// keep the current pointer pointed at what was asked for, so the UI
+		// reports the intended configuration even when it failed to read
+		set_current(name);
+		return;
+	}
+	for (const std::string &r : rejections)
+		WEB_WARNING("Startup configuration \"%s\": %s", name.c_str(), r.c_str());
+	WEB_INFO("Startup configuration \"%s\" applied, %u rejections.",
+			name.c_str(), (unsigned) rejections.size());
 }
 
 // /api/configs, /api/configs/<name>, /api/configs/<name>/apply
@@ -584,7 +862,7 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	}
 
 	std::string name = rest.substr(1);
-	bool apply = false;
+	std::string action; // "apply", "rename", "default", or empty for the config itself
 	// /<name>/devices/<device>/image
 	std::string image_device;
 	size_t devsep = name.find("/devices/");
@@ -600,9 +878,15 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			send_error(conn, 404, "unknown device");
 			return 404;
 		}
-	} else if (name.size() > 6 && name.compare(name.size() - 6, 6, "/apply") == 0) {
-		name = name.substr(0, name.size() - 6);
-		apply = true;
+	} else {
+		size_t sep = name.rfind('/');
+		if (sep != std::string::npos) {
+			std::string tail = name.substr(sep + 1);
+			if (tail == "apply" || tail == "rename" || tail == "default") {
+				action = tail;
+				name = name.substr(0, sep);
+			}
+		}
 	}
 	if (!valid_config_name(name)) {
 		send_error(conn, 404, "unknown configuration");
@@ -615,23 +899,48 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 			return 405;
 		}
 		config_set_image(conn, name, image_device);
-	} else if (apply && method == "POST")
+	} else if (action == "apply" && method == "POST")
 		config_apply(conn, name);
-	else if (!apply && method == "PUT")
+	else if (action == "rename" && method == "POST") {
+		picojson::value req;
+		if (!read_json_body(conn, &req) || !req.get("name").is<std::string>()) {
+			send_error(conn, 400, "body must be a JSON object with a string \"name\"");
+			return 400;
+		}
+		std::string error;
+		if (!webconfigs_rename(name, req.get("name").get<std::string>(), &error)) {
+			// an existing target or invalid name is a conflict, not a missing config
+			send_error(conn, 409, error);
+			return 409;
+		}
+		picojson::object res;
+		res["ok"] = picojson::value(true);
+		send_json(conn, 200, picojson::value(res));
+	} else if (action == "default" && method == "PUT") {
+		std::string error;
+		if (!webconfigs_set_default(name, &error)) {
+			send_error(conn, 404, error);
+			return 404;
+		}
+		picojson::object res;
+		res["ok"] = picojson::value(true);
+		send_json(conn, 200, picojson::value(res));
+	} else if (action.empty() && method == "PUT")
 		config_save(conn, name);
-	else if (!apply && method == "GET") {
+	else if (action.empty() && method == "GET") {
 		picojson::value content;
 		std::string err;
 		if (!read_config(name, &content, &err))
 			send_error(conn, 404, err);
 		else
 			send_json(conn, 200, content);
-	} else if (!apply && method == "DELETE") {
-		if (unlink(config_path(name).c_str()) != 0) {
-			send_error(conn, 404, "unknown configuration \"" + name + "\"");
-			return 404;
+	} else if (action.empty() && method == "DELETE") {
+		std::string error;
+		int status = 404;
+		if (!webconfigs_delete(name, &error, &status)) {
+			send_error(conn, status, error);
+			return status;
 		}
-		WEB_INFO("configuration \"%s\" deleted", name.c_str());
 		picojson::object res;
 		res["ok"] = picojson::value(true);
 		send_json(conn, 200, picojson::value(res));
@@ -642,12 +951,19 @@ static int api_configs_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	return 200;
 }
 
+// Locate the configuration directory and capture the parameter defaults an
+// apply resets to. Separated from the HTTP registration so the host test can
+// drive the model against a temporary directory without civetweb.
+void webconfigs_init(const std::string &dir) {
+	configs_dir = dir;
+	mkdir(configs_dir.c_str(), 0755); // may already exist
+	capture_parameter_defaults();
+}
+
 void webconfigs_register(struct mg_context *ctx) {
 	const char *base = getenv("QUNIBONE_DIR");
 	if (base == nullptr)
 		base = getenv("HOME");
-	configs_dir = std::string(base ? base : ".") + "/configs";
-	mkdir(configs_dir.c_str(), 0755); // may already exist
-	capture_parameter_defaults();
+	webconfigs_init(std::string(base ? base : ".") + "/configs");
 	mg_set_request_handler(ctx, "/api/configs", api_configs_handler, nullptr);
 }

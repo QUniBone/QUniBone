@@ -127,6 +127,11 @@ install -m 644 packaging/debian/bone-network.service \
     packaging/debian/bone-resize.service packaging/debian/bone-announce.service \
     $STAGE/lib/systemd/system/
 install -m 644 packaging/debian/network.conf $STAGE/etc/bone/network.conf
+# The bundled empty configuration. The service adopts it as the default on a
+# board that has never had one set, so a valid startup configuration always
+# exists. Shipped as a template and copied into place by postinst only when
+# absent, so an operator's own default.json is never overwritten.
+install -m 644 packaging/debian/default-config.json $STAGE/usr/share/bone/default-config.json
 # DNS-SD advertisement for the web interface. A template: bone-setup substitutes
 # the board's name and identifier and installs it under /etc/avahi/services, so
 # the file under /etc is generated rather than a conffile every board would show
@@ -220,6 +225,13 @@ cat > $STAGE/DEBIAN/postinst <<'POSTINST'
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
+    # Seed the bundled empty configuration as the startup fallback, without
+    # ever clobbering an operator's own default.json.
+    if [ ! -e /var/lib/bone/configs/default.json ]; then
+        install -d -m 755 /var/lib/bone/configs
+        install -m 644 /usr/share/bone/default-config.json \
+            /var/lib/bone/configs/default.json || true
+    fi
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         # $2 is the previously configured version, empty on a first install.
