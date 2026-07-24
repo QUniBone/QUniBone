@@ -42,12 +42,32 @@ on navigation and does not cleanly re-establish.
 
 ### Scope
 
-- The console does **not** need to be reconfigurable from the dashboard. Its
-  source stays fixed (`ttys2` on this board); the dashboard presents it, it does
+- On this board the console does **not** need to be reconfigurable from the
+  dashboard. Its source stays fixed (`ttys2`); the dashboard presents it, it does
   not configure it.
 - The console is also reachable at its **own standalone URL** — a bare
   full-screen page separate from the dashboard
   ([web-navigation.md](web-navigation.md)).
+
+### Console SLU source across CPU boards
+
+Where the console SLU lives depends on the CPU. The 11/53 and 11/73 integrate it
+on the processor board, wired here to `/dev/ttyS2` and bridged as the external
+console. Other Q-bus CPUs (11/23, 11/03) have no onboard console SLU and need an
+external SLU board — or could use QBone's **emulated DL11 at 777560** as the
+console instead of physical hardware. On a board with an onboard SLU the emulated
+DL11 must stay disabled, since the real SLU already answers 777560 and holds
+`ttyS2`; on a board without one, that emulated DL11 *is* the console.
+
+- QBone **assists the user in setting up the console** for their CPU through an
+  **interactive web-UI setup step**. The user **declares their CPU / console
+  type** (onboard SLU, external SLU board, or emulated), and QBone configures the
+  console source and the 777560 DL11 accordingly.
+- Both arrangements are supported as a choice: **bridging a physical SLU**
+  (onboard or external, over `ttyS2`) or providing the console through the
+  **emulated DL11 at 777560**. When the emulated DL11 is the console, it is
+  enabled; when a physical SLU is present, it stays disabled to avoid the 777560
+  clash.
 
 ## Open questions
 
@@ -66,3 +86,15 @@ on navigation and does not cleanly re-establish.
 
 - Relationship to the journal — the console flush already keeps the journal live;
   is the stored console log the same artifact or separate?
+
+### Console SLU source
+
+- What does the setup step ask for exactly — a CPU model picked from a list
+  (11/73, 11/53, 11/23, 11/03, …) that implies the SLU arrangement, or the SLU
+  arrangement chosen directly?
+- The onboard-SLU-vs-emulated-DL11 conflict at 777560 is a bus-address clash — is
+  the guard that prevents enabling the DL11 over a real SLU the same "probe the
+  bus for conflicts" work in the repo TODO?
+- The external-console bridge source (`ttys2`/`webserial`/`off`) and the emulated
+  DL11 enable are the two levers the setup step sets — does the step write them
+  directly, or through a higher-level "console type" it stores?

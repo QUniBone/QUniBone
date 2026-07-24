@@ -9,12 +9,15 @@ reports the kernel's view of the send (the `sendto()` return value and the
 interface `tx_packets` counter before/after). A capture on the peer shows
 whether the frame actually reached the wire.
 
-On the BeagleBone Black used for QUniBone (kernel 4.9.100-bone-rt, TI CPSW
-driver) the `send()` succeeds and `tx_packets` increments, but the frame
-never arrives at the peer. This isolates that defect from the DELQA
-emulation: raw-socket transmit does not egress the physical port, so the
-emulated Ethernet controller can only reach services on the BeagleBone
-itself (e.g. a local `mopd`).
+QBone's Ethernet path now works fully, including reaching external hosts on
+the LAN. This tool remains a quick isolation check for the raw-socket TX
+path if a networking problem is ever suspected.
+
+Historical note: on the BeagleBone Black (kernel 4.9.100-bone-rt, TI CPSW
+driver) a raw-TX loss was seen on 2026-07-17 where `send()` succeeded and
+`tx_packets` incremented but the frame never reached the peer; it turned out
+to be a degraded runtime state that cleared on a clean boot, not a static
+defect.
 
 Build and run on the BeagleBone:
 

@@ -36,6 +36,7 @@ Status legend, shown at the top of each document:
 | Serial ports over TCP | [serial-ports.md](serial-ports.md) | Gathering |
 | VCB01 support | [vcb01.md](vcb01.md) | Gathering |
 | Logging control | [logging.md](logging.md) | Gathering |
+| RSX-11M+ over DELQA | [rsx-delqa.md](rsx-delqa.md) | Gathering |
 | MCP server | [mcp-server.md](mcp-server.md) | Gathering |
 | Device implementation standard | [device-implementation-standard.md](device-implementation-standard.md) | Standing |
 
