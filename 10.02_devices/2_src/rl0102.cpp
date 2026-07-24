@@ -40,6 +40,7 @@ RL0102_c::RL0102_c(storagecontroller_c *_controller) :    storagedrive_c(_contro
     runstop_button.value = false; // force user to load file assume drive is LOAD
     fault_lamp.value = false;
     cover_open.value = false;
+    spinup_delay.value = false; // ready at once unless the delay is asked for
 
 }
 
@@ -279,6 +280,14 @@ void RL0102_c::state_spin_up()
         return;
     }
 
+    if (!spinup_delay.value) {          // ready at once: skip the modeled spin-up
+        rotation_umin.value = full_rpm;
+        cylinder = 0;
+        image_params_readonly(true);
+        change_state(RL0102_STATE_brush_cycle);
+        return;
+    }
+
     rpm_increment *= emulation_speed.value;
     INFO("Spin up drive speed = %d", rotation_umin.value);
 
@@ -304,7 +313,7 @@ void RL0102_c::state_brush_cycle()
     // drive_ready_line = false ;
     update_status_word(/*drive_ready_line*/false, drive_error_line);
 
-    state_timeout.wait_ms(100);
+    state_timeout.wait_ms(spinup_delay.value ? 100 : 0);
     change_state(RL0102_STATE_load_heads);
 }
 
@@ -312,7 +321,7 @@ void RL0102_c::state_load_heads()
 {
     // drive_ready_line = false ;
     update_status_word(/*drive_ready_line*/false, drive_error_line);
-    state_timeout.wait_ms(time_heads_out_ms);
+    state_timeout.wait_ms(spinup_delay.value ? time_heads_out_ms : 0);
 
     cylinder = 0;
     this->seek_destination_cylinder = 0;
@@ -425,7 +434,7 @@ void RL0102_c::state_lock_on()
 void RL0102_c::state_unload_heads() 
 {
     drive_ready_line = false;
-    state_timeout.wait_ms(time_heads_out_ms);
+    state_timeout.wait_ms(spinup_delay.value ? time_heads_out_ms : 0);
     change_state(RL0102_STATE_spin_down);
 }
 

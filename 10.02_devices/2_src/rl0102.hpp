@@ -152,6 +152,9 @@ public:
 	false, "1, if RL cover is open");
 	// not readonly only in "load" state
 
+	parameter_bool_c spinup_delay = parameter_bool_c(this, "spinupdelay", "sud", /*readonly*/
+	false, "1 = model the drive's spin-up/spin-down delay; 0 = ready at once");
+
 	RL0102_c(storagecontroller_c *controller);
 
 	bool on_param_changed(parameter_c *param) override;
