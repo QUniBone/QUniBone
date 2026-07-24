@@ -5,7 +5,10 @@ import re,sys
 def parse(lst):
     mem={}
     for line in open(lst):
-        m=re.match(r'\s*\d+\s+([0-7]{6})\s+(.*)',line)
+        # A directive with many values spills onto continuation lines that carry
+        # the address but no source-line number, so the line number is optional
+        # (1-5 digits, since the address is a padded 6-digit octal).
+        m=re.match(r'\s*(?:\d{1,5}\s+)?([0-7]{6})\s+(.*)',line)
         if not m: continue
         a=int(m.group(1),8); rest=m.group(2)
         for tok in re.finditer(r'([0-7]{6}|[0-7]{3})',rest):

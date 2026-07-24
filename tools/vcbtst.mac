@@ -1,0 +1,613 @@
+	.title	vcbtst
+;+
+; VCB01 test program - standalone, no operating system.
+;
+; Brings the board up from a halted 11/73: sets up the MMU, programs the 6845,
+; lays a scanline map, clears the bitmap and enables video. Then draws a frame
+; test pattern - a border, the two corner-to-corner diagonals and a centred
+; crosshair, all meeting in the middle - and a "PDP11 VCB01 TEST" banner down
+; the right in a single-stroke vector font (DIN 3098 Normschrift style).
+;
+; It then loops on the keyboard and pointer:
+;   - a printable key is shown as its letter in the upper left, drawn XOR so the
+;     previous letter is rubbed out before the next is drawn;
+;   - while a mouse button is held the pointer leaves a connected line. The
+;     pointer is absolute when the board reports its position through the QBone
+;     MPOS extension, and relative (VSXXX deltas) otherwise.
+;
+; Screen is 1024 x 864. Every pixel is reached through kernel APR 6, aimed at
+; whichever 8K page of the 256K video bank a pixel needs.
+;-
+
+; --- board registers, in the I/O page ---
+csr	= 177200		; control/status
+mpos	= 177204		; QBone ext: abs pointer X, bit 15 = present
+mposy	= 177206		; QBone ext: abs pointer Y
+crtcp	= 177210		; 6845 pointer
+crtcd	= 177212		; 6845 data
+sra	= 177242		; DUART status A  (keyboard)
+cra	= 177244		; DUART command A
+rbufa	= 177246		; DUART rx buffer A
+srb	= 177262		; DUART status B  (pointer)
+crb	= 177264		; DUART command B
+rbufb	= 177266		; DUART rx buffer B
+
+; --- MMU ---
+kisar0	= 172340
+kisdr0	= 172300
+kisar6	= 172354
+kisar7	= 172356
+mmr0	= 177572
+mmr3	= 172516
+iopage	= 177600		; I/O page physical base / 100
+
+window	= 140000		; the virtual page APR 6 maps
+vidbase	= 160000		; video memory physical base / 100
+
+xmax	= 1024.
+ymax	= 864.			; the VCB01's native height (VR260, 864 lines)
+xmid	= 512.
+ymid	= 432.
+
+; --- macros (must precede use) ---
+	.macro	save
+	mov	r0,-(sp)
+	mov	r1,-(sp)
+	mov	r2,-(sp)
+	mov	r3,-(sp)
+	mov	r4,-(sp)
+	mov	r5,-(sp)
+	.endm
+	.macro	rest
+	mov	(sp)+,r5
+	mov	(sp)+,r4
+	mov	(sp)+,r3
+	mov	(sp)+,r2
+	mov	(sp)+,r1
+	mov	(sp)+,r0
+	.endm
+; line: draw (x0,y0)-(x1,y1) in @#mode
+	.macro	line	x0,y0,x1,y1
+	mov	x0,@#lx0
+	mov	y0,@#ly0
+	mov	x1,@#lx1
+	mov	y1,@#ly1
+	call	line2
+	.endm
+
+	.asect
+	.=1000
+
+start:
+	mov	#40000,sp		; stack well above the program's data
+					; (it grows down; 4000 collided with it)
+	mov	#trap,@#4		; bus-error vector
+	mov	#340,@#6
+	mov	#trap,@#250		; MMU-abort vector
+	mov	#340,@#252
+
+; --- kernel APRs 0-7 identity, APR 7 to the I/O page, MMU on 22-bit ---
+	mov	#kisar0,r0
+	mov	#kisdr0,r1
+	clr	r2
+	mov	#10.,r3
+1$:	mov	r2,(r0)+
+	mov	#77406,(r1)+
+	add	#200,r2
+	sob	r3,1$
+	mov	#iopage,@#kisar7
+	mov	#20,@#mmr3
+	mov	#1,@#mmr0
+
+	mov	#msgrun,r1		; announce on the console, so a driver can sync
+	call	puts
+
+; --- the 6845, written a word at a time so the DATO lands cleanly ---
+	clr	r0
+	mov	#crttab,r1
+	mov	#18.,r2
+2$:	mov	r0,@#crtcp
+	movb	(r1)+,r3
+	mov	r3,@#crtcd
+	inc	r0
+	sob	r2,2$
+
+; --- linear scanline map: screen line N shows buffer line N ---
+	mov	#vidbase+<760000/100>,@#kisar6	; the top 8K page
+	mov	#window+14000,r0
+	clr	r1
+	mov	#ymax,r2
+3$:	mov	r1,(r0)+
+	inc	r1
+	sob	r2,3$
+
+; --- clear the bitmap: ymax lines of 128 bytes ---
+	clr	r3
+10$:	call	mapline
+	mov	#64.,r2
+11$:	clr	(r0)+
+	sob	r2,11$
+	inc	r3
+	cmp	r3,#ymax
+	blo	10$
+
+; --- enable video, OR the cursor in ---
+	mov	#4+10,@#csr
+
+; --- build the LK201-code -> glyph-index table -------------------------------
+	mov	#lktab,r0		; clear 256 bytes
+	mov	#256.,r1
+12$:	clrb	(r0)+
+	sob	r1,12$
+	mov	#lkltr,r0		; 26 letter codes -> glyphs 1..26
+	mov	#lktab,r1
+	mov	#1,r2
+13$:	movb	(r0)+,r3
+	bic	#177400,r3
+	movb	r2,lktab(r3)
+	inc	r2
+	cmp	r2,#27.
+	blo	13$
+	mov	#lkdig,r0		; 10 digit codes -> glyphs 27..36
+	mov	#27.,r2
+14$:	movb	(r0)+,r3
+	bic	#177400,r3
+	movb	r2,lktab(r3)
+	inc	r2
+	cmp	r2,#37.
+	blo	14$
+
+; --- the frame test pattern --------------------------------------------------
+	clr	@#mode			; OR mode for the fixed pattern
+
+	line	#0,#0,#xmax-1,#0
+	line	#0,#ymax-1,#xmax-1,#ymax-1
+	line	#0,#0,#0,#ymax-1
+	line	#xmax-1,#0,#xmax-1,#ymax-1
+	line	#0,#0,#xmax-1,#ymax-1
+	line	#xmax-1,#0,#0,#ymax-1
+	line	#0,#ymid,#xmax-1,#ymid
+	line	#xmid,#0,#xmid,#ymax-1
+
+; --- banner down the right, in the vector font (XOR so it composes cleanly) ---
+	mov	#1,@#mode
+	mov	#banner,r0
+	mov	#720.,r1		; x, near the right edge
+	mov	#40.,r2			; y
+20$:	movb	(r0)+,r4		; next glyph index
+	bmi	21$			; -1 ends it
+	mov	r4,-(sp)		; idx
+	mov	r2,-(sp)		; y
+	mov	r1,-(sp)		; x (top of the three)
+	call	glyph
+	add	#6,sp
+	add	#28.,r2			; step down a line
+	br	20$
+21$:
+
+; --- interactive ------------------------------------------------------------
+	clr	@#lastg			; no letter shown yet
+	clr	@#pendn			; button up
+	mov	#xmid,@#curx		; relative pointer starts centred
+	mov	#ymid,@#cury
+	mov	#msgrdy,r1		; pattern drawn, entering the input loop
+	call	puts
+mainloop:
+	bit	#1,@#sra		; keyboard byte?
+	beq	30$
+	movb	@#rbufa,r0
+	call	showkey
+30$:	call	pointer
+	br	mainloop
+
+;+
+; showkey: r0 = LK201 make code. If it maps to a glyph, rub out the last letter
+; and draw the new one XOR at the letter cell in the upper left.
+;-
+kcellx	= 40.
+kcelly	= 40.
+showkey:
+	bic	#177400,r0
+	movb	lktab(r0),r1		; r1 = glyph index (0 = ignore)
+	beq	9$
+	mov	#1,@#mode
+	mov	@#lastg,r4		; rub out the previous letter
+	beq	1$
+	mov	r4,-(sp)
+	mov	#kcelly,-(sp)
+	mov	#kcellx,-(sp)
+	call	glyph
+	add	#6,sp
+1$:	mov	r1,r4			; draw the new one
+	mov	r1,@#lastg
+	mov	r4,-(sp)
+	mov	#kcelly,-(sp)
+	mov	#kcellx,-(sp)
+	call	glyph
+	add	#6,sp
+9$:	return
+
+;+
+; pointer: update the cursor from the QBone absolute register when present, or
+; from VSXXX deltas otherwise, and while a button is held draw a connected line.
+;-
+pointer:
+	mov	@#mpos,r0		; absolute position available?
+	bpl	1$			; bit 15 clear -> not present
+	bic	#176000,r0		; X in low 10 bits (clear bits 10..15)
+	mov	r0,@#curx
+	mov	@#mposy,r1
+	bic	#176000,r1		; Y in low 10 bits
+	mov	r1,@#cury
+	mov	@#csr,r0		; left button: CSR MSA, 0 when pressed
+	bit	#400,r0
+	beq	2$			; pressed
+	clr	@#pendn
+	br	9$
+2$:	br	3$			; pressed - fall through to draw
+
+1$:	; relative fallback: consume one VSXXX report if present
+	bit	#1,@#srb
+	beq	9$
+	movb	@#rbufb,r0
+	call	mousebyte
+	tst	@#mready		; a full report assembled?
+	beq	9$
+	clr	@#mready
+	tst	@#mbtn			; button state from the report
+	beq	4$
+3$:	; button down
+	tst	@#pendn
+	bne	5$			; already drawing: line from last to here
+	mov	#1,@#pendn		; just pressed: anchor
+	br	6$
+5$:	clr	@#mode
+	mov	@#lastx,@#lx0
+	mov	@#lasty,@#ly0
+	mov	@#curx,@#lx1
+	mov	@#cury,@#ly1
+	call	line2
+6$:	mov	@#curx,@#lastx
+	mov	@#cury,@#lasty
+	br	9$
+4$:	clr	@#pendn
+9$:	return
+
+;+
+; mousebyte: assemble a three-byte VSXXX report; on the third byte move the
+; relative cursor and flag mready with the button state in mbtn.
+;-
+mousebyte:
+	mov	@#mstate,r1
+	beq	70$
+	dec	r1
+	beq	71$
+	mov	r0,@#mdy		; third byte: act
+	mov	@#mhdr,r1
+	bic	#177417,r1		; buttons in bits 5..7 -> mbtn (any)
+	mov	r1,@#mbtn
+	mov	@#curx,r2		; new X
+	bit	#20,@#mhdr
+	bne	75$
+	sub	@#mdx,r2
+	br	76$
+75$:	add	@#mdx,r2
+76$:	cmp	r2,#0
+	bge	77$
+	clr	r2
+77$:	cmp	r2,#xmax
+	blt	78$
+	mov	#xmax-1,r2
+78$:	mov	r2,@#curx
+	mov	@#cury,r2		; new Y
+	bit	#10,@#mhdr
+	beq	72$
+	sub	@#mdy,r2
+	br	73$
+72$:	add	@#mdy,r2
+73$:	cmp	r2,#0
+	bge	74$
+	clr	r2
+74$:	cmp	r2,#ymax
+	blt	79$
+	mov	#ymax-1,r2
+79$:	mov	r2,@#cury
+	mov	#1,@#mready
+	clr	@#mstate
+	return
+70$:	mov	r0,@#mhdr
+	mov	#1,@#mstate
+	return
+71$:	mov	r0,@#mdx
+	mov	#2,@#mstate
+	return
+
+;+
+; glyph: draw glyph (index at 6(sp)) at (4(sp)=x, 2(sp)=y) in the current mode,
+; a single-stroke vector letter. The font is a packed vertex list per glyph;
+; a byte is (x<<4 | y) on an 8x12 grid, 0377 lifts the pen, 0376 ends. Cell is
+; scaled by gsc.
+;-
+gsc	= 2.				; pixels per grid unit
+glyph:
+	save
+	mov	22(sp),r0		; glyph index
+	asl	r0
+	mov	glyptr(r0),r0		; -> vertex bytes
+	mov	16(sp),r1		; cell x
+	mov	20(sp),r2		; cell y
+	mov	#1,@#gpen		; pen up at the start
+1$:	movb	(r0)+,r3
+	cmpb	r3,#376
+	beq	9$
+	cmpb	r3,#377
+	bne	2$
+	mov	#1,@#gpen		; lift the pen
+	br	1$
+2$:	mov	r3,r4			; vx = high nibble, vy = low nibble
+	ash	#-4,r4
+	bic	#177760,r4
+	mov	r4,@#gvx
+	mov	r3,r4
+	bic	#177760,r4
+	mov	r4,@#gvy
+	mov	@#gvx,r4		; sx = cellx + vx*gsc
+	asl	r4
+	add	r1,r4
+	mov	r4,@#gsx
+	mov	@#gvy,r4		; sy = celly + vy*gsc
+	asl	r4
+	add	r2,r4
+	mov	r4,@#gsy
+	tst	@#gpen
+	beq	3$			; pen down: draw from last
+	clr	@#gpen
+	br	4$
+3$:	mov	@#glx,@#lx0
+	mov	@#gly,@#ly0
+	mov	@#gsx,@#lx1
+	mov	@#gsy,@#ly1
+	call	line2
+4$:	mov	@#gsx,@#glx		; last = this
+	mov	@#gsy,@#gly
+	br	1$
+9$:	rest
+	return
+
+;+
+; line macro: push four coords and call line2. Draws (x0,y0)-(x1,y1) in @#mode.
+;-
+	.macro	line	x0,y0,x1,y1
+	mov	x0,@#lx0
+	mov	y0,@#ly0
+	mov	x1,@#lx1
+	mov	y1,@#ly1
+	call	line2
+	.endm
+
+;+
+; line2: Bresenham line between (lx0,ly0) and (lx1,ly1), honouring @#mode.
+; The sign test must read the flags from the SUB, so the conditional branch
+; follows it directly - a MOV in between would overwrite N with the moved
+; value and force the wrong step direction.
+;-
+line2:
+	save
+	mov	@#lx0,r0		; current x
+	mov	@#ly0,r1		; current y
+	mov	@#lx1,r2
+	sub	r0,r2			; dx = x1-x0, flags valid
+	bge	11$
+	neg	r2			; |dx|
+	mov	#-1,@#lsx
+	br	12$
+11$:	mov	#1,@#lsx
+12$:	mov	r2,@#ldx
+	mov	@#ly1,r3
+	sub	r1,r3			; dy = y1-y0, flags valid
+	bge	13$
+	neg	r3			; |dy|
+	mov	#-1,@#lsy
+	br	14$
+13$:	mov	#1,@#lsy
+14$:	neg	r3			; ldy = -|dy|
+	mov	r3,@#ldy
+	add	@#ldx,r3		; err = dx + (-dy)
+	mov	r3,@#lerr
+3$:	call	setpix			; plots (r0,r1); preserves r0,r1
+	cmp	r0,@#lx1
+	bne	4$
+	cmp	r1,@#ly1
+	beq	8$
+4$:	mov	@#lerr,r2
+	asl	r2			; e2 = 2*err
+	cmp	r2,@#ldy
+	blt	5$
+	add	@#ldy,@#lerr
+	add	@#lsx,r0
+5$:	cmp	r2,@#ldx
+	bgt	3$
+	add	@#ldx,@#lerr
+	add	@#lsy,r1
+	br	3$
+8$:	rest
+	return
+
+;+
+; setpix: set/toggle pixel (r0=x, r1=y) per @#mode (0=OR, 1=XOR). Preserves
+; r0,r1; uses r2-r5.
+;-
+setpix:
+	cmp	r0,#0
+	blt	9$
+	cmp	r0,#xmax
+	bge	9$
+	cmp	r1,#0
+	blt	9$
+	cmp	r1,#ymax
+	bge	9$
+	mov	r1,r2			; APR6 page = (y & ~63)*2 + vidbase
+	bic	#77,r2
+	ash	#1,r2
+	add	#vidbase,r2
+	mov	r2,@#kisar6
+	mov	r1,r3			; byte in page = (y&63)*128 + x/8
+	bic	#177700,r3
+	ash	#7,r3
+	mov	r0,r4
+	ash	#-3,r4
+	add	r4,r3
+	add	#window,r3
+	mov	r0,r4			; bit = 1 << (x & 7)
+	bic	#177770,r4
+	mov	#1,r5
+	ash	r4,r5
+	tst	@#mode
+	bne	1$
+	bisb	r5,(r3)			; OR
+	return
+1$:	movb	(r3),r4			; XOR
+	xor	r5,r4
+	movb	r4,(r3)
+9$:	return
+
+;+
+; mapline: point APR 6 at buffer line r3, return its window base in r0.
+;-
+mapline:
+	mov	r3,r0
+	bic	#77,r0
+	ash	#1,r0
+	add	#vidbase,r0
+	mov	r0,@#kisar6
+	mov	r3,r0
+	bic	#177700,r0
+	ash	#7,r0
+	add	#window,r0
+	return
+
+trap:	mov	(sp),@#770
+	mov	@#kisar6,@#766
+	halt
+
+; --- 6845 timing: 50 rows of 16 scan lines = 800 displayed ---
+crttab:	.byte	41.,32.,34.,6,57.,10.,54.,55.,4,15.,0,1,0,0,0,0,0,0
+
+; --- LK201 make codes, a..z then 0..9 ---
+lkltr:	.byte	302,331,316,315,314,322,330,335,346,342
+	.byte	347,354,343,336,353,360,301,321,307,327
+	.byte	341,323,306,310,334,303
+lkdig:	.byte	357,300,305,313,320,326,333,340,345,352
+
+; --- banner text as glyph indices (1..26 = A..Z, 27..36 = 0..9, 0 = space) ---
+;     P  D  P  11    space V  C  B  0 1   space T  E  S  T
+banner:	.byte	16.,4.,16.,28.,28.,0.,22.,3.,2.,27.,28.,0.,20.,5.,19.,20.
+	.byte	-1
+
+	.even
+; --- glyph pointer table: index -> vertex list. 0 = space ---
+glyptr:	.word	gsp			; 0 space
+	.word	gA,gB,gC,gD,gE,gF,gG,gH,gI,gJ,gK,gL,gM
+	.word	gN,gO,gP,gQ,gR,gS,gT,gU,gV,gW,gX,gY,gZ
+	.word	g0,g1,g2,g3,g4,g5,g6,g7,g8,g9
+
+; vertex byte = (x<<4)|y, x 0..7, y 0..11 ; 0377 pen up ; 0376 end
+gsp:	.byte	376
+gA:	.byte	012,060,152,377,026,126,376
+gB:	.byte	000,012,377,000,100,121,124,105,005,377,105,126,131,112,012,376
+gC:	.byte	142,100,040,002,010,052,112,150,376
+gD:	.byte	000,012,377,000,060,122,130,072,012,376
+gE:	.byte	140,000,012,152,377,005,105,376
+gF:	.byte	140,000,012,377,005,105,376
+gG:	.byte	142,100,040,002,010,052,112,150,146,066,376
+gH:	.byte	000,012,377,140,152,377,005,145,376
+gI:	.byte	020,120,377,060,072,377,032,132,376
+gJ:	.byte	120,130,072,032,010,376
+gK:	.byte	000,012,377,140,005,152,376
+gL:	.byte	000,012,152,376
+gM:	.byte	012,000,065,140,152,376
+gN:	.byte	012,000,152,140,376
+gO:	.byte	040,100,142,150,112,052,010,002,040,376
+gP:	.byte	012,000,100,121,124,105,005,376
+gQ:	.byte	040,100,142,150,112,052,010,002,040,377,107,152,376
+gR:	.byte	012,000,100,121,124,105,005,377,065,152,376
+gS:	.byte	142,100,040,002,004,045,105,146,150,112,052,010,376
+gT:	.byte	000,140,377,060,072,376
+gU:	.byte	000,010,052,112,150,140,376
+gV:	.byte	000,072,140,376
+gW:	.byte	000,032,064,132,140,376
+gX:	.byte	000,152,377,140,012,376
+gY:	.byte	000,065,140,377,065,072,376
+gZ:	.byte	000,140,012,152,376
+g0:	.byte	040,100,142,150,112,052,010,002,040,377,142,010,376
+g1:	.byte	022,060,072,377,032,132,376
+g2:	.byte	002,040,100,142,144,012,152,376
+g3:	.byte	000,140,064,377,064,125,147,131,072,032,010,376
+g4:	.byte	112,100,006,146,376
+g5:	.byte	140,000,004,104,146,150,112,032,010,376
+g6:	.byte	142,100,040,003,010,052,112,150,146,105,005,376
+g7:	.byte	000,140,052,376
+g8:	.byte	045,003,040,100,143,105,045,377,045,007,052,112,147,105,376
+g9:	.byte	010,052,112,150,142,100,040,002,004,045,145,376
+
+	.even
+mode:	.word	0
+lktab:	.blkb	256.
+	.even
+lastg:	.word	0
+pendn:	.word	0
+curx:	.word	0
+cury:	.word	0
+lastx:	.word	0
+lasty:	.word	0
+; line2 / glyph scratch
+ldx:	.word	0
+ldy:	.word	0
+lsx:	.word	0
+lsy:	.word	0
+lerr:	.word	0
+lx0:	.word	0
+ly0:	.word	0
+lx1:	.word	0
+ly1:	.word	0
+gpen:	.word	0
+gvx:	.word	0
+gvy:	.word	0
+gsx:	.word	0
+gsy:	.word	0
+glx:	.word	0
+gly:	.word	0
+; mouse
+mstate:	.word	0
+mhdr:	.word	0
+mdx:	.word	0
+mdy:	.word	0
+mbtn:	.word	0
+mready:	.word	0
+
+; --- console output on the 11/73's own SLU, reached through APR 7 ---
+xcsr	= 177564
+xbuf	= 177566
+putc:
+1$:	bit	#200,@#xcsr		; the on-board SLU has no transmit FIFO, so
+	beq	1$			; wait for XMIT RDY before every character
+	mov	r0,@#xbuf
+	return
+puts:	save
+1$:	movb	(r1)+,r0
+	beq	2$
+	bic	#177400,r0
+	call	putc
+	br	1$
+2$:	rest
+	return
+
+msgrun:	.byte	15,12
+	.ascii	/VCB01 TEST RUNNING/
+	.byte	15,12,0
+	.even
+msgrdy:	.ascii	/VCB01 TEST READY/
+	.byte	15,12,0
+	.even
+
+	.end	start
