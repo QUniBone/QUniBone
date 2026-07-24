@@ -39,10 +39,29 @@ Status legend, shown at the top of each document:
 | MCP server | [mcp-server.md](mcp-server.md) | Gathering |
 | Device implementation standard | [device-implementation-standard.md](device-implementation-standard.md) | Standing |
 
+## Cross-cutting decisions
+
+These apply across the areas above and are fixed for this round:
+
+- **Frontend gains a build step.** The web UI moves to **Vite + Preact +
+  TypeScript**, bundled on the dev machine; the static output is still served
+  as-is by civetweb, so nothing new runs on the board. All the web areas
+  (dashboard, config management, navigation, console) build on this.
+- **The REST API may change shape.** The web UI, MCP server, and board version
+  together — one deployment, no external clients — so endpoints are reshaped
+  freely as the configuration model needs, and `api.md` is updated to match.
+- **New API work carries automated tests.** New endpoints, the configuration
+  model above all, ship with integration tests runnable in CI (Forgejo Actions).
+  Device emulation is validated by XXDP per the
+  [device implementation standard](device-implementation-standard.md).
+
 ## Cross-cutting dependencies
 
 The configuration model underpins the configuration-management UI and the
 default-configuration and save/rename/delete behaviour. Friendly device names
 surface in both the dashboard and the configuration-management screens. The
 dashboard disk widgets depend on the same image list the configuration screens
-manage. Sequence the configuration model first.
+manage.
+
+**Implementation order:** the **configuration model is planned and built first**,
+as the keystone the config UI, dashboard drive-swap, and MCP config tools sit on.
