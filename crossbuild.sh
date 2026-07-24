@@ -17,13 +17,13 @@
 #   ./crossbuild.sh -p         rebuild the PRU firmware even if it is present
 #
 # environment:
-#   QUNIBONE_HOST   ssh destination of the device (default hans@192.168.2.221)
+#   QUNIBONE_HOST   ssh destination of the device (default hans@qbone.huebner.org)
 #   QUNIBONE_REMOTE_DIR  QUniBone directory on the device (default ~/QUniBone)
 
 set -e
 cd "$(dirname "$0")"
 
-QUNIBONE_HOST=${QUNIBONE_HOST:-hans@192.168.2.221}
+QUNIBONE_HOST=${QUNIBONE_HOST:-hans@qbone.huebner.org}
 QUNIBONE_REMOTE_DIR=${QUNIBONE_REMOTE_DIR:-QUniBone}
 IMAGE=qunibone-crossbuild
 PRU_IMAGE=qunibone-pru-cgt

@@ -66,3 +66,22 @@ manage.
 
 **Implementation order:** the **configuration model is planned and built first**,
 as the keystone the config UI, dashboard drive-swap, and MCP config tools sit on.
+
+## Implementation agents
+
+The work splits along skill and toolchain lines into four specialist agents
+(defined in [`.claude/agents/`](../../.claude/agents/)). They are skill
+specialists that hand off across the `api.md` contract, not owners of whole
+plans — several plans deliberately span more than one.
+
+| Agent | Owns | Plans |
+|---|---|---|
+| `frontend-web` | Vite/Preact/TS SPA: routing, dashboard, console UI, config screen, widgets | web-navigation, console (UI), web-config-management, web-dashboard (UI) |
+| `service-cpp` | civetweb REST/WS API, config model, settings, events, console channel, logging | configuration-model, logging, device-metadata, console (server), web-config-management (API), web-dashboard (power flag, `status`) |
+| `device-emulation` | `qunibusdevice_c` devices: registers/DMA, PRU/bus, XXDP | serial-ports (register frontends), vcb01 (device) |
+| `pdp11-guest` | RSX-11M+ SYSGEN/NETGEN, 2.11BSD drivers, MACRO-11, boot/test | rsx-delqa, vcb01 (2.11BSD driver) |
+
+Shared contracts to keep aligned: the REST/WS shapes and the `config`/`state`
+events, the device `label` and verbal `status` fields (service-cpp owns them,
+frontend-web and the MCP server read them), and the serial-port TCP/RFC2217
+backend (service-cpp) behind the emulated mux registers (device-emulation).
