@@ -43,15 +43,15 @@ snapshots, which cannot express an edited-but-unsaved state.
   console bridge, `external_console=ttys2`, and other `settings.json` entries)
   stay separate and are applied independently of which configuration is current,
   so switching configurations never disturbs the `ttys2` console bridge.
+- **Revert re-applies the saved form to the live machine.** It restores the
+  current config's last-saved device set and re-initialises the running machine
+  to match, so a device added since the save is dropped.
+- **Existing config files migrate into the new model.** `211bsd.json` and the
+  other saved snapshots become configurations directly; the migration is small
+  and is where the DL11 that `211bsd.json` lists but never enables gets dropped.
 
 ## Open questions
 
 - The dirty/modified state must be exposed by the API for the UI to read. Is it
   computed by comparing live devices against the saved config, or tracked
   explicitly as edits happen?
-- **Revert** restores the current config's saved form — does that re-apply it to
-  the live machine (re-init devices), and what happens to a device that was added
-  since the save?
-- `211bsd.json` and the existing config files — do they become configurations in
-  the new model as-is, or need migration? (`211bsd.json` lists a DL11 that never
-  actually enables; a migration is a chance to drop it.)

@@ -27,6 +27,9 @@ on navigation and does not cleanly re-establish.
   screen, no lost cursor. Replaying the stored history (below) restores the
   screen on reconnect. Relates to web navigation
   ([web-navigation.md](web-navigation.md)).
+- Console state and any output produced while the user is on another page are
+  retained across navigation and restored on return, from the server-side
+  history (below).
 
 ### History storage and replay
 
@@ -60,9 +63,9 @@ DL11 must stay disabled, since the real SLU already answers 777560 and holds
 `ttyS2`; on a board without one, that emulated DL11 *is* the console.
 
 - QBone **assists the user in setting up the console** for their CPU through an
-  **interactive web-UI setup step**. The user **declares their CPU / console
-  type** (onboard SLU, external SLU board, or emulated), and QBone configures the
-  console source and the 777560 DL11 accordingly.
+  **interactive web-UI setup step**. The user **chooses the SLU arrangement
+  directly** (onboard SLU, external SLU board, or emulated DL11), and QBone
+  configures the console source and the 777560 DL11 accordingly.
 - Both arrangements are supported as a choice: **bridging a physical SLU**
   (onboard or external, over `ttyS2`) or providing the console through the
   **emulated DL11 at 777560**. When the emulated DL11 is the console, it is
@@ -89,9 +92,6 @@ DL11 must stay disabled, since the real SLU already answers 777560 and holds
 
 ### Console SLU source
 
-- What does the setup step ask for exactly — a CPU model picked from a list
-  (11/73, 11/53, 11/23, 11/03, …) that implies the SLU arrangement, or the SLU
-  arrangement chosen directly?
 - The onboard-SLU-vs-emulated-DL11 conflict at 777560 is a bus-address clash — is
   the guard that prevents enabling the DL11 over a real SLU the same "probe the
   bus for conflicts" work in the repo TODO?
