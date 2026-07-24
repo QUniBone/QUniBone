@@ -586,10 +586,10 @@ table.data td.mono, table.data th.num { font-family: var(--font-mono); }
 .rlpanel.span2 { grid-column: span 2; }
 /* the VCB01 shows its framebuffer; give it the room and keep pixels crisp */
 .vcb01-widget { grid-column: span 2; }
-.vcb01-screen { margin-top: 8px; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
-.vcb01-screen canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; cursor: crosshair; outline: none; }
+.vcb01-screen { margin-top: 8px; background: var(--term-bg); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.vcb01-screen canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: var(--term-bg); cursor: crosshair; outline: none; }
 .vcb01-screen canvas:focus { box-shadow: inset 0 0 0 2px var(--phosphor); }
-.vcb01-hint { font-size: var(--fs-1); color: var(--muted); margin-top: 4px; }
+.vcb01-hint { font-size: var(--fs-1); color: var(--ink-muted); margin-top: 4px; }
 
 /* removable-media tags */
 .w-tag { font-size: var(--fs-0); padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
@@ -1016,15 +1016,26 @@ function wireSerial() {
 /* ---------------- VCB01 framebuffer: /ws/vcb01 ---------------- */
 const VCB01D = { ws: null, off: null, w: 0, h: 0 };
 function vcb01Off() { if (!VCB01D.off) VCB01D.off = document.createElement('canvas'); return VCB01D.off; }
+// the picture wears the terminal's phosphor: lit pixels in --phosphor on the
+// --term-bg ground, so the screen and the console read as one CRT
+const VCB01_INK = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const rgb = (name, dflt) => {
+    const h = (cs.getPropertyValue(name).trim() || dflt).replace('#', '');
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  };
+  return { on: rgb('--phosphor', '3DF57F'), off: rgb('--term-bg', '0B100C') };
+})();
 function vcb01DrawRows(first, count, bytes, boff) {
   const w = VCB01D.w, stride = w >> 3;
+  const [onR, onG, onB] = VCB01_INK.on, [offR, offG, offB] = VCB01_INK.off;
   const ctx = vcb01Off().getContext('2d');
   const img = ctx.createImageData(w, count), d = img.data;
   for (let r = 0; r < count; r++)
     for (let x = 0; x < w; x++) {
       const on = (bytes[boff + r * stride + (x >> 3)] >> (7 - (x & 7))) & 1;
       const p = (r * w + x) * 4;
-      d[p] = 0; d[p + 1] = on ? 255 : 0; d[p + 2] = 0; d[p + 3] = 255;
+      d[p] = on ? onR : offR; d[p + 1] = on ? onG : offG; d[p + 2] = on ? onB : offB; d[p + 3] = 255;
     }
   ctx.putImageData(img, 0, first);
 }
@@ -1046,10 +1057,13 @@ function vcb01Connect() {
     else return;
     vcb01Blit();
   };
-  ws.onclose = () => { VCB01D.ws = null; };
+  // a reaped or dropped socket would otherwise freeze the screen; reconnect
+  // while the widget is still on the page (the server closes idle duplicates)
+  ws.onclose = () => { VCB01D.ws = null;
+    if (document.getElementById('vcb01-canvas')) setTimeout(vcb01Connect, 1500); };
   VCB01D.ws = ws;
 }
-function vcb01Disconnect() { if (VCB01D.ws) { VCB01D.ws.close(); VCB01D.ws = null; } }
+function vcb01Disconnect() { if (VCB01D.ws) { const w = VCB01D.ws; VCB01D.ws = null; w.onclose = null; w.close(); } }
 const VCB01_KEYSYM = (() => {
   const m = {};
   for (let c = 65; c <= 90; c++) m['Key' + String.fromCharCode(c)] = c + 32;
@@ -1788,6 +1802,17 @@ async function initLive() {
   }
 }
 initLive();
+
+/* Close every WebSocket when the page goes away, so a reload or navigation
+   frees the server's per-socket worker thread at once rather than leaving it
+   to the ping/pong timeout. */
+window.addEventListener('pagehide', () => {
+  const shut = ws => { try { if (ws) { ws.onclose = null; ws.close(); } } catch (e) {} };
+  shut(eventsWs);
+  shut(extWs);
+  shut(VCB01D.ws);
+  if (TERMS) for (const k of Object.keys(TERMS)) shut(TERMS[k].ws);
+});
 </script>
 </body>
 </html>
