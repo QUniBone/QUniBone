@@ -310,7 +310,7 @@ $(OBJDIR)/cpu.o :  $(DEVICE_SRC_DIR)/cpu.cpp $(DEVICE_SRC_DIR)/cpu.hpp
 	$(CC) $(CCFLAGS) $< -o $@
 
 $(OBJDIR)/ka11.o :  $(DEVICE_SRC_DIR)/cpu20/ka11.c $(DEVICE_SRC_DIR)/cpu20/ka11.h
-	$(CC) $(CCFLAGS) -x c++ -Wno-parentheses $< -o $@
+	$(CC) $(CCFLAGS) -x c++ -Wno-parentheses -Wno-misleading-indentation -Wno-implicit-fallthrough $< -o $@
 
 $(OBJDIR)/rl0102.o :  $(DEVICE_SRC_DIR)/rl0102.cpp $(DEVICE_SRC_DIR)/rl0102.hpp
 	$(CC) $(CCFLAGS) $< -o $@
@@ -427,7 +427,7 @@ $(OBJDIR)/blinkenbone/blinkenlight_panels.o :  $(BLINKENBONE_SRC_DIR)/blinkenlig
 
 $(OBJDIR)/blinkenbone/rpc_blinkenlight_api_clnt.o :  $(BLINKENBONE_SRC_DIR)/rpc_blinkenlight_api_clnt.cpp $(BLINKENBONE_SRC_DIR)/rpc_blinkenlight_api.h
 	mkdir -p $(OBJDIR)/blinkenbone
-	$(CC) $(CCFLAGS) $< -o $@
+	$(CC) $(CCFLAGS) -Wno-cast-function-type $< -o $@
 
 $(OBJDIR)/blinkenbone/rpc_blinkenlight_api_xdr.o :  $(BLINKENBONE_SRC_DIR)/rpc_blinkenlight_api_xdr.cpp $(BLINKENBONE_SRC_DIR)/blinkenlight_api_client.h
 	mkdir -p $(OBJDIR)/blinkenbone

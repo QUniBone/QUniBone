@@ -80,6 +80,25 @@ Two linker settings that have to stay:
 - **`-no-pie`.** The vendored `libprussdrv.a` holds no position-independent
   code, so a toolchain defaulting to PIE rejects its relocations.
 
+## Warnings and diagnostics
+
+Keep both the build and the editor clean. A change is not done while it leaves
+compiler warnings or spurious language-server errors behind.
+
+- **No compiler warnings.** Fix them at the source, not by silencing the
+  compiler — e.g. bounded `snprintf(buf, sizeof buf, …)` rather than `sprintf`.
+  This holds for the board build (`./crossbuild.sh`), the host tests
+  (`10.05_web/tools/*`), and CI.
+- **No spurious editor diagnostics.** The IDE's clangd has none of the makefile's
+  `-I` paths or `-D` defines, so without help it reports false "file not found"
+  errors (`civetweb.h`, `logger.hpp`, …) that cascade into undeclared-identifier
+  noise. The committed **`.clangd`** at the repo root gives clangd the QBUS
+  build's view so those clear. Keep it in sync when include paths or defines
+  change; add a path there rather than leaving a real header unresolved.
+- **Vendored third-party code** under `91_3rd_party/` is upstream; prefer a
+  scoped, documented handling (a per-file suppression or an upstream-safe patch)
+  over editing it casually, but the goal is still a clean build.
+
 ## Hardware notes
 
 The 11/73 answers across the whole 22-bit space — a full 4 MB of memory. Any

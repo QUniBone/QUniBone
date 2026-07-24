@@ -168,8 +168,8 @@ static int api_state_handler(struct mg_connection *conn, void * /*cbdata*/) {
 	return 200;
 }
 
-webserver_c::webserver_c(unsigned port, std::string docroot) :
-		port(port), docroot(docroot) {
+webserver_c::webserver_c(unsigned listen_port, std::string document_root) :
+		port(listen_port), docroot(document_root) {
 	log_label = "websrv";
 }
 

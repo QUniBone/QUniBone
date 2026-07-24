@@ -45,7 +45,7 @@ private:
 	std::string docroot;
 
 public:
-	webserver_c(unsigned port, std::string docroot);
+	webserver_c(unsigned listen_port, std::string document_root);
 	~webserver_c();
 
 	// starts the worker threads; false on error (port in use, bad docroot)

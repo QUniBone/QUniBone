@@ -238,6 +238,13 @@ namespace picojson {
     }
   }
   
+// Local patch: gcc's -Wmaybe-uninitialized falsely flags the union copy in the
+// default arm below (the trivial types carry no owned storage). Silenced here
+// rather than globally; guarded so non-gcc compilers ignore the pragma.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
   inline value::value(const value& x) : type_(x.type_) {
     switch (type_) {
 #define INIT(p, v) case p##type: u_.p = v; break
@@ -250,6 +257,9 @@ namespace picojson {
       break;
     }
   }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
   
   inline value& value::operator=(const value& x) {
     if (this != &x) {

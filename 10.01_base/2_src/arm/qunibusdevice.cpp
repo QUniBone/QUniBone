@@ -135,7 +135,7 @@ qunibusdevice_register_t *qunibusdevice_c::register_by_name(std::string _name)
 	unsigned i;
 	for (i = 0; i < register_count; i++) {
 		qunibusdevice_register_t *reg = &(registers[i]);
-		if (reg->name && !strcasecmp(_name.c_str(), reg->name))
+		if (reg->name[0] && !strcasecmp(_name.c_str(), reg->name))
 			return reg;
 	}
 	return NULL;

@@ -201,7 +201,7 @@ void parameter_unsigned_c::parse(std::string text)
 std::string *parameter_unsigned_c::render() 
 {
 	char buffer[1024];
-	sprintf(buffer, format.c_str(), value);
+	snprintf(buffer, sizeof(buffer), format.c_str(), value);
 	printbuffer = buffer;
 	return &printbuffer;
 }
@@ -248,7 +248,7 @@ void parameter_unsigned64_c::parse(std::string text)
 std::string *parameter_unsigned64_c::render() 
 {
 	char buffer[1024];
-	sprintf(buffer, format.c_str(), value);
+	snprintf(buffer, sizeof(buffer), format.c_str(), value);
 	printbuffer = buffer;
 	return &printbuffer;
 }
@@ -263,7 +263,7 @@ parameter_double_c::parameter_double_c(parameterized_c *_parameterized, std::str
 std::string *parameter_double_c::render(void) 
 {
 	char buffer[1024];
-	sprintf(buffer, format.c_str(), value);
+	snprintf(buffer, sizeof(buffer), format.c_str(), value);
 	printbuffer = buffer;
 	return &printbuffer;
 }
